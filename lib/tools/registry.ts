@@ -48,6 +48,18 @@ export const TOOLS: Tool[] = [
     owaspRefs: ["A05:2021 - Security Misconfiguration"],
     tags: ["cors", "headers"],
   },
+  {
+    id: "cert-viewer",
+    name: "TLS / Cert Viewer",
+    tagline: "Inspect the live certificate chain.",
+    description:
+      "Opens a TLS handshake to a host, walks the certificate chain, and grades expiry, hostname match, signature algorithm, key strength, protocol version, and cipher.",
+    href: "/tools/cert-viewer",
+    apiPath: "/api/tools/cert-viewer",
+    status: "live",
+    owaspRefs: ["A02:2021 - Cryptographic Failures"],
+    tags: ["tls", "certificates", "crypto"],
+  },
 ];
 
 export function getTool(id: string): Tool | undefined {

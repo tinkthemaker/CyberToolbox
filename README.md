@@ -11,6 +11,7 @@ module so the toolbox can grow without restructuring.
 | Misconfig Mapper | Live | OWASP A05 — security headers, exposed `.git`/`.env`, cookie hygiene, info disclosure |
 | JWT Inspector    | Live | OWASP A02 — JWT decoding + audit (alg:none, kid injection, expired/long lifetimes, sensitive claims) and a client-side HS256 weak-secret cracker via Web Crypto |
 | CORS Tester      | Live | OWASP A05 — Origin reflection + credentials, `null` origin trust, suffix/prefix/subdomain bypass, scheme downgrade, `Vary: Origin` hygiene |
+| TLS / Cert Viewer | Live | OWASP A02 — live TLS handshake, full chain inspection, expiry, hostname match, weak signature/key algorithms, protocol & cipher |
 
 More tools planned (subdomain hygiene check, JWT inspector, CORS tester, TLS
 certificate viewer, etc.).
@@ -61,8 +62,23 @@ lib/
   cors/
     types.ts                        # ProbeResult / CorsReport
     scan.ts                         # Probe set + analyzer
+  tls/
+    types.ts                        # ParsedCert / CertReport
+    scan.ts                         # node:tls handshake, chain walk, analysis
 public/jwt-wordlist.json            # Common dev/test secrets
+vercel.json                         # Function maxDuration + security headers
 ```
+
+## Vercel deployment config
+
+`vercel.json` sets per-function `maxDuration` and applies security headers
+(CSP, HSTS, XFO, nosniff, Referrer-Policy, Permissions-Policy) to every
+response. Once deployed, you can point `Misconfig Mapper` at your own
+production URL and watch it pass — a satisfying demo loop.
+
+CSP note: `script-src` includes `'unsafe-inline'` because Next.js App
+Router injects inline scripts for hydration. The strictly-correct fix is
+nonce-based CSP via Next.js middleware; this is left as a follow-up.
 
 ## Adding a new tool
 
