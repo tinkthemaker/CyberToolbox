@@ -25,6 +25,17 @@ export const TOOLS: Tool[] = [
     owaspRefs: ["A05:2021 - Security Misconfiguration"],
     tags: ["headers", "exposure", "cookies"],
   },
+  {
+    id: "jwt-inspector",
+    name: "JWT Inspector",
+    tagline: "Decode, audit, and crack weak HS256 secrets.",
+    description:
+      "Paste a JWT and see decoded header/payload, security findings (alg:none, kid injection, expired tokens, sensitive claims), and a built-in HS256 wordlist crack — all in your browser.",
+    href: "/tools/jwt-inspector",
+    status: "live",
+    owaspRefs: ["A02:2021 - Cryptographic Failures"],
+    tags: ["jwt", "crypto", "client-only"],
+  },
 ];
 
 export function getTool(id: string): Tool | undefined {

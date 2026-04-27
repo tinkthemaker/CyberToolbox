@@ -1,19 +1,5 @@
-export type Severity = "pass" | "warn" | "fail" | "info";
-
-export type Finding = {
-  id: string;
-  name: string;
-  severity: Severity;
-  detail: string;
-  value?: string;
-  recommendation?: string;
-};
-
-export type FindingGroup = {
-  id: string;
-  title: string;
-  findings: Finding[];
-};
+export type { Severity, Finding, FindingGroup } from "@/lib/shared/findings";
+import type { FindingGroup } from "@/lib/shared/findings";
 
 export type ScanReport = {
   target: {

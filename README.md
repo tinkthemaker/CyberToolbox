@@ -9,6 +9,7 @@ module so the toolbox can grow without restructuring.
 | Tool | Status | Covers |
 | --- | --- | --- |
 | Misconfig Mapper | Live | OWASP A05 — security headers, exposed `.git`/`.env`, cookie hygiene, info disclosure |
+| JWT Inspector    | Live | OWASP A02 — JWT decoding + audit (alg:none, kid injection, expired/long lifetimes, sensitive claims) and a client-side HS256 weak-secret cracker via Web Crypto |
 
 More tools planned (subdomain hygiene check, JWT inspector, CORS tester, TLS
 certificate viewer, etc.).
@@ -43,6 +44,7 @@ components/
   ScanReportView.tsx                # Misconfig report renderer
 lib/
   tools/registry.ts                 # Single source of truth for tools
+  shared/findings.ts                # Generic Finding / Severity types
   security/
     ssrf.ts                         # Block private/loopback/metadata IPs
     safe-fetch.ts                   # Guarded fetch with redirect re-checks
@@ -51,6 +53,11 @@ lib/
     scan.ts                         # Orchestrator
     headers.ts | disclosure.ts | cookies.ts | probes.ts
     types.ts
+  jwt/
+    parse.ts                        # base64url decode → header/payload/signature
+    analyze.ts                      # Security findings
+    crack.ts                        # Web Crypto HMAC verify + wordlist crack
+public/jwt-wordlist.json            # Common dev/test secrets
 ```
 
 ## Adding a new tool
