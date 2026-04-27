@@ -10,6 +10,7 @@ module so the toolbox can grow without restructuring.
 | --- | --- | --- |
 | Misconfig Mapper | Live | OWASP A05 — security headers, exposed `.git`/`.env`, cookie hygiene, info disclosure |
 | JWT Inspector    | Live | OWASP A02 — JWT decoding + audit (alg:none, kid injection, expired/long lifetimes, sensitive claims) and a client-side HS256 weak-secret cracker via Web Crypto |
+| CORS Tester      | Live | OWASP A05 — Origin reflection + credentials, `null` origin trust, suffix/prefix/subdomain bypass, scheme downgrade, `Vary: Origin` hygiene |
 
 More tools planned (subdomain hygiene check, JWT inspector, CORS tester, TLS
 certificate viewer, etc.).
@@ -57,6 +58,9 @@ lib/
     parse.ts                        # base64url decode → header/payload/signature
     analyze.ts                      # Security findings
     crack.ts                        # Web Crypto HMAC verify + wordlist crack
+  cors/
+    types.ts                        # ProbeResult / CorsReport
+    scan.ts                         # Probe set + analyzer
 public/jwt-wordlist.json            # Common dev/test secrets
 ```
 

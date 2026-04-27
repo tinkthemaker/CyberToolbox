@@ -36,6 +36,18 @@ export const TOOLS: Tool[] = [
     owaspRefs: ["A02:2021 - Cryptographic Failures"],
     tags: ["jwt", "crypto", "client-only"],
   },
+  {
+    id: "cors-tester",
+    name: "CORS Tester",
+    tagline: "Probe an endpoint's Origin policy.",
+    description:
+      "Sends a battery of Origin probes — reflection, null, suffix/prefix bypass, subdomain, scheme downgrade, and a preflight — and classifies the response. Flags the dangerous reflection-with-credentials pattern.",
+    href: "/tools/cors-tester",
+    apiPath: "/api/tools/cors-tester",
+    status: "live",
+    owaspRefs: ["A05:2021 - Security Misconfiguration"],
+    tags: ["cors", "headers"],
+  },
 ];
 
 export function getTool(id: string): Tool | undefined {
