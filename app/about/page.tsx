@@ -1,3 +1,10 @@
+import type { Metadata } from "next";
+
+export const metadata: Metadata = {
+  title: "About",
+  description: "How the Cyber Toolbox is built and the rules it follows.",
+};
+
 export default function AboutPage() {
   return (
     <article className="prose prose-invert max-w-3xl">

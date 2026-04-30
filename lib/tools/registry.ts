@@ -12,6 +12,17 @@ export type Tool = {
   tags?: string[];
 };
 
+export const SITE = {
+  name: "Cyber Toolbox",
+  description: "A growing collection of small, focused web-security tools.",
+};
+
+export function baseUrl(): string {
+  if (process.env.SITE_URL) return process.env.SITE_URL.replace(/\/$/, "");
+  if (process.env.VERCEL_URL) return `https://${process.env.VERCEL_URL}`;
+  return "http://localhost:3000";
+}
+
 export const TOOLS: Tool[] = [
   {
     id: "misconfig-mapper",
@@ -64,4 +75,10 @@ export const TOOLS: Tool[] = [
 
 export function getTool(id: string): Tool | undefined {
   return TOOLS.find((t) => t.id === id);
+}
+
+export function toolMetadata(id: string): { title: string; description: string } {
+  const tool = getTool(id);
+  if (!tool) return { title: "Not found", description: SITE.description };
+  return { title: tool.name, description: tool.description };
 }

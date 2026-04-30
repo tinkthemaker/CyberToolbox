@@ -1,16 +1,38 @@
 import type { Metadata } from "next";
 import Link from "next/link";
+import { headers } from "next/headers";
+import { SITE } from "@/lib/tools/registry";
 import "./globals.css";
 
 export const metadata: Metadata = {
-  title: "Cyber Toolbox",
-  description: "A growing collection of small, focused web-security tools.",
+  title: {
+    default: SITE.name,
+    template: `%s · ${SITE.name}`,
+  },
+  description: SITE.description,
+  applicationName: SITE.name,
+  authors: [{ name: SITE.name }],
+  keywords: ["security", "appsec", "owasp", "jwt", "cors", "tls", "headers"],
+  openGraph: {
+    title: SITE.name,
+    description: SITE.description,
+    siteName: SITE.name,
+    type: "website",
+  },
+  twitter: {
+    card: "summary_large_image",
+    title: SITE.name,
+    description: SITE.description,
+  },
+  robots: { index: true, follow: true },
 };
 
 export default function RootLayout({ children }: { children: React.ReactNode }) {
+  const nonce = headers().get("x-nonce") ?? undefined;
   return (
     <html lang="en">
-      <body className="font-sans antialiased">
+      <body className="font-sans antialiased" data-nonce={nonce}>
+        <a href="#main" className="skip-link">Skip to main content</a>
         <header className="border-b border-ink-700/60 bg-ink-950/60 backdrop-blur sticky top-0 z-10">
           <div className="mx-auto max-w-6xl px-6 py-4 flex items-center justify-between">
             <Link href="/" className="flex items-center gap-2 group">
@@ -25,7 +47,7 @@ export default function RootLayout({ children }: { children: React.ReactNode }) 
             </nav>
           </div>
         </header>
-        <main className="mx-auto max-w-6xl px-6 py-10">{children}</main>
+        <main id="main" className="mx-auto max-w-6xl px-6 py-10">{children}</main>
         <footer className="mx-auto max-w-6xl px-6 py-10 text-xs text-slate-500">
           <p>
             For authorized testing and educational use only. Only scan systems you own or have explicit

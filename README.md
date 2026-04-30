@@ -13,8 +13,7 @@ module so the toolbox can grow without restructuring.
 | CORS Tester      | Live | OWASP A05 — Origin reflection + credentials, `null` origin trust, suffix/prefix/subdomain bypass, scheme downgrade, `Vary: Origin` hygiene |
 | TLS / Cert Viewer | Live | OWASP A02 — live TLS handshake, full chain inspection, expiry, hostname match, weak signature/key algorithms, protocol & cipher |
 
-More tools planned (subdomain hygiene check, JWT inspector, CORS tester, TLS
-certificate viewer, etc.).
+More tools planned (subdomain hygiene check, open-redirect tester, etc.).
 
 ## Run locally
 
@@ -29,17 +28,28 @@ Open http://localhost:3000.
 
 1. Push this repo to GitHub.
 2. Import it at https://vercel.com/new — Next.js is auto-detected.
-3. Defaults are fine. The misconfig API route is configured for the Node
-   runtime (it needs DNS resolution for the SSRF guard) with a 15s max
-   duration — within the free tier.
+3. (Optional but recommended) set the `SITE_URL` env var to your final
+   domain (e.g. `https://cybertoolbox.example.com`). It feeds `robots.txt`,
+   `sitemap.xml`, and the OG image's metadata. If you skip it, Vercel's
+   `VERCEL_URL` is used as a fallback.
+4. Defaults are fine. API routes use the Node runtime (needed for DNS
+   resolution in the SSRF guard and `node:tls` for the cert viewer) with
+   per-route `maxDuration` configured in `vercel.json` — well within the
+   free tier.
 
 ## Architecture
 
 ```
 app/
   page.tsx                          # Tool grid (driven by registry)
-  tools/<id>/page.tsx               # Tool UI
+  not-found.tsx                     # Custom 404 (lists live tools)
+  robots.ts | sitemap.ts            # SEO basics, runtime-rendered
+  opengraph-image.tsx               # Edge-rendered OG card via ImageResponse
+  tools/<id>/
+    page.tsx                        # Server shell, exports metadata
+    View.tsx                        # Client UI
   api/tools/<id>/route.ts           # Tool API
+middleware.ts                       # Per-request CSP nonce
 components/
   ToolCard.tsx                      # Registry card
   SeverityBadge.tsx                 # Pass/Warn/Fail/Info
@@ -71,24 +81,45 @@ vercel.json                         # Function maxDuration + security headers
 
 ## Vercel deployment config
 
-`vercel.json` sets per-function `maxDuration` and applies security headers
-(CSP, HSTS, XFO, nosniff, Referrer-Policy, Permissions-Policy) to every
-response. Once deployed, you can point `Misconfig Mapper` at your own
-production URL and watch it pass — a satisfying demo loop.
+`vercel.json` sets per-function `maxDuration` and applies static security
+headers (HSTS, XFO=DENY, nosniff, Referrer-Policy, Permissions-Policy)
+to every response. CSP is set per-request by `middleware.ts` so each
+response gets a fresh nonce — no `'unsafe-inline'` for scripts.
 
-CSP note: `script-src` includes `'unsafe-inline'` because Next.js App
-Router injects inline scripts for hydration. The strictly-correct fix is
-nonce-based CSP via Next.js middleware; this is left as a follow-up.
+Once deployed, point `Misconfig Mapper` at your own production URL and
+watch it pass its own checks — satisfying demo loop.
+
+### CSP nonce
+
+`middleware.ts` issues a 128-bit nonce per request, sets the
+`Content-Security-Policy` header on both the request and the response,
+and Next.js's runtime threads it onto the inline hydration scripts. The
+policy is strict by default:
+
+```
+script-src 'self' 'nonce-<random>' 'strict-dynamic'
+```
+
+Dev mode adds `'unsafe-eval'` for HMR; production does not.
 
 ## Adding a new tool
 
 1. Add an entry to `lib/tools/registry.ts`.
-2. Create `app/tools/<id>/page.tsx` for the UI.
-3. Create `app/api/tools/<id>/route.ts` for server logic. Always go through
-   `safeFetch` from `lib/security/safe-fetch.ts` for any user-supplied URL.
-4. Apply `rateLimit(...)` at the top of the route handler.
+2. Create `app/tools/<id>/View.tsx` (`"use client"`) for the UI.
+3. Create `app/tools/<id>/page.tsx`:
 
-The home grid picks up the new tool automatically.
+   ```tsx
+   import { toolMetadata } from "@/lib/tools/registry";
+   import View from "./View";
+   export const metadata = toolMetadata("<id>");
+   export default function Page() { return <View />; }
+   ```
+
+4. Create `app/api/tools/<id>/route.ts` for server logic. Always go through
+   `safeFetch` from `lib/security/safe-fetch.ts` for any user-supplied URL.
+5. Apply `rateLimit(...)` at the top of the route handler.
+
+The home grid, sitemap, and OG image all pick up the new tool automatically.
 
 ## Safety notes
 
@@ -102,6 +133,11 @@ The home grid picks up the new tool automatically.
   cold start; for production traffic swap in Upstash KV or Vercel KV.
 - This is a defensive/educational tool. Only scan systems you own or have
   explicit permission to test.
+
+## CI
+
+`.github/workflows/ci.yml` runs typecheck, lint, and build on every push
+and pull request.
 
 ## License
 
