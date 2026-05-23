@@ -1,6 +1,9 @@
 # Cyber Toolbox
 
 [![CI](https://github.com/tinkthemaker/CyberToolbox/actions/workflows/ci.yml/badge.svg)](https://github.com/tinkthemaker/CyberToolbox/actions/workflows/ci.yml)
+[![Next.js](https://img.shields.io/badge/Next.js-15-black?logo=next.js)](https://nextjs.org)
+[![TypeScript](https://img.shields.io/badge/TypeScript-5.0+-3178C6?logo=typescript)](https://typescriptlang.org)
+[![Tailwind](https://img.shields.io/badge/Tailwind-3.4+-06B6D4?logo=tailwindcss)](https://tailwindcss.com)
 [![License: MIT](https://img.shields.io/badge/license-MIT-blue.svg)](LICENSE)
 
 A growing collection of small, focused **web-security tools** — paste a URL,
