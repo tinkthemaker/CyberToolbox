@@ -20,7 +20,7 @@ export type ParsedCert = {
   expired: boolean;
   notYetValid: boolean;
   signatureAlgorithm?: string;
-  keyType: "rsa" | "ec" | "ed25519" | "ed448" | "dsa" | "unknown";
+  keyType: "rsa" | "ec" | "unknown";
   keyBits?: number;
   curve?: string;
   serialNumber: string;

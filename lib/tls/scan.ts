@@ -1,5 +1,6 @@
 import tls, { type DetailedPeerCertificate } from "node:tls";
-import { guardUrl } from "@/lib/security/ssrf";
+import { guardUrl, pinnedLookup } from "@/lib/security/ssrf";
+import type { PinnedAddress } from "@/lib/security/ssrf";
 import type { Finding, FindingGroup } from "@/lib/shared/findings";
 import type { CertReport, CertSubject, ParsedCert } from "./types";
 import { extractSignatureAlgorithm } from "./der";
@@ -34,7 +35,7 @@ function walkChain(root: DetailedPeerCertificate): DetailedPeerCertificate[] {
 
 type StrictResult = { authorized: true } | { authorized: false; error: string };
 
-function strictConnect(host: string, port: number): Promise<StrictResult> {
+function strictConnect(host: string, addresses: PinnedAddress[], port: number): Promise<StrictResult> {
   return new Promise((resolve) => {
     let settled = false;
     const socket = tls.connect(
@@ -42,6 +43,7 @@ function strictConnect(host: string, port: number): Promise<StrictResult> {
         host,
         port,
         servername: host,
+        lookup: pinnedLookup(addresses),
         rejectUnauthorized: true,
         checkServerIdentity: () => undefined,
       },
@@ -66,7 +68,7 @@ function strictConnect(host: string, port: number): Promise<StrictResult> {
   });
 }
 
-function lenientConnect(host: string, port: number): Promise<RawConnectResult> {
+function lenientConnect(host: string, addresses: PinnedAddress[], port: number): Promise<RawConnectResult> {
   return new Promise((resolve, reject) => {
     const start = Date.now();
     let settled = false;
@@ -75,6 +77,7 @@ function lenientConnect(host: string, port: number): Promise<RawConnectResult> {
         host,
         port,
         servername: host,
+        lookup: pinnedLookup(addresses),
         rejectUnauthorized: false,
         ALPNProtocols: ["h2", "http/1.1"],
       },
@@ -111,10 +114,10 @@ function lenientConnect(host: string, port: number): Promise<RawConnectResult> {
   });
 }
 
-async function tlsInspect(host: string, port: number): Promise<RawConnectResult> {
+async function tlsInspect(host: string, addresses: PinnedAddress[], port: number): Promise<RawConnectResult> {
   const [strict, lenient] = await Promise.all([
-    strictConnect(host, port),
-    lenientConnect(host, port),
+    strictConnect(host, addresses, port),
+    lenientConnect(host, addresses, port),
   ]);
   return {
     ...lenient,
@@ -333,13 +336,6 @@ function analyse(
         severity: "pass",
         detail: "ECDSA keys provide strong security with smaller sizes.",
       });
-    } else if (leaf.keyType === "ed25519" || leaf.keyType === "ed448") {
-      findings.push({
-        id: "edwards-key",
-        name: `Key: ${leaf.keyType.toUpperCase()}`,
-        severity: "pass",
-        detail: "Modern Edwards-curve key.",
-      });
     }
 
     // Self-signed
@@ -469,7 +465,7 @@ export async function runTlsScan(
 
   let connect: RawConnectResult;
   try {
-    connect = await tlsInspect(host, port);
+    connect = await tlsInspect(host, guard.addresses, port);
   } catch (e) {
     const msg = e instanceof Error ? e.message : "TLS connection failed";
     return { ok: false, reason: `Could not connect: ${msg}` };
