@@ -1,5 +1,6 @@
 import dns from "node:dns/promises";
 import net from "node:net";
+import type { LookupFunction } from "node:net";
 
 const BLOCKED_V4_CIDRS = [
   "0.0.0.0/8",
@@ -18,6 +19,8 @@ const BLOCKED_V4_CIDRS = [
   "240.0.0.0/4",
   "255.255.255.255/32",
 ];
+
+export type PinnedAddress = { address: string; family: 4 | 6 };
 
 function ipv4ToInt(ip: string): number {
   const parts = ip.split(".");
@@ -60,8 +63,37 @@ function isBlockedV4(ip: string): boolean {
 }
 
 export type GuardResult =
-  | { ok: true; url: URL; ip: string; family: 4 | 6 }
+  | {
+      ok: true;
+      url: URL;
+      ip: string;
+      family: 4 | 6;
+      addresses: PinnedAddress[];
+    }
   | { ok: false; reason: string };
+
+export function pinnedLookup(
+  addresses: PinnedAddress[],
+): LookupFunction {
+  return (_hostname, options, callback) => {
+    const family =
+      options.family === "IPv4" ? 4 : options.family === "IPv6" ? 6 : options.family;
+    const selected = family
+      ? addresses.filter((address) => address.family === family)
+      : addresses;
+    if (selected.length === 0) {
+      callback(
+        Object.assign(new Error("No validated address for requested family."), { code: "ENOTFOUND" }),
+        "",
+        0,
+      );
+    } else if (options.all) {
+      callback(null, selected);
+    } else {
+      callback(null, selected[0].address, selected[0].family);
+    }
+  };
+}
 
 export async function guardUrl(input: string): Promise<GuardResult> {
   let url: URL;
@@ -86,7 +118,8 @@ export async function guardUrl(input: string): Promise<GuardResult> {
     return { ok: false, reason: `Refusing to scan private/reserved IPv6 address ${hostname}.` };
   }
   if (literal !== 0) {
-    return { ok: true, url, ip: hostname, family: literal as 4 | 6 };
+    const family = literal as 4 | 6;
+    return { ok: true, url, ip: hostname, family, addresses: [{ address: hostname, family }] };
   }
 
   const lowered = hostname.toLowerCase();
@@ -112,5 +145,6 @@ export async function guardUrl(input: string): Promise<GuardResult> {
   }
 
   const first = addrs[0];
-  return { ok: true, url, ip: first.address, family: first.family as 4 | 6 };
+  const addresses = addrs.map((a) => ({ address: a.address, family: a.family as 4 | 6 }));
+  return { ok: true, url, ip: first.address, family: first.family as 4 | 6, addresses };
 }

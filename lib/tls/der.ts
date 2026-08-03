@@ -1,26 +1,29 @@
-function readLength(buf: Uint8Array, offset: number): { length: number; bytesUsed: number } {
+function readLength(buf: Uint8Array, offset: number): { length: number; bytesUsed: number } | undefined {
+  if (offset < 0 || offset >= buf.length) return undefined;
   const first = buf[offset];
   if ((first & 0x80) === 0) return { length: first, bytesUsed: 1 };
   const numBytes = first & 0x7f;
+  if (numBytes === 0 || numBytes > 4 || offset + numBytes >= buf.length) return undefined;
   let length = 0;
-  for (let i = 1; i <= numBytes; i++) length = (length << 8) | buf[offset + i];
+  for (let i = 1; i <= numBytes; i++) length = length * 256 + buf[offset + i];
   return { length, bytesUsed: numBytes + 1 };
 }
 
-function decodeOid(bytes: Uint8Array): string {
-  if (bytes.length === 0) return "";
+function decodeOid(bytes: Uint8Array): string | undefined {
+  if (bytes.length === 0) return undefined;
   const parts: number[] = [];
-  parts.push(Math.floor(bytes[0] / 40));
-  parts.push(bytes[0] % 40);
+  const first = Math.min(Math.floor(bytes[0] / 40), 2);
+  parts.push(first);
+  parts.push(bytes[0] - 40 * first);
   let value = 0;
   for (let i = 1; i < bytes.length; i++) {
-    value = (value << 7) | (bytes[i] & 0x7f);
+    value = value * 128 + (bytes[i] & 0x7f);
     if ((bytes[i] & 0x80) === 0) {
       parts.push(value);
       value = 0;
     }
   }
-  return parts.join(".");
+  return bytes[bytes.length - 1] & 0x80 ? undefined : parts.join(".");
 }
 
 const SIG_OID_NAMES: Record<string, string> = {
@@ -45,21 +48,26 @@ export function extractSignatureAlgorithm(der: Uint8Array): string | undefined {
     let pos = 0;
     if (der[pos++] !== 0x30) return undefined;
     const outer = readLength(der, pos);
+    if (!outer || outer.length > der.length - pos - outer.bytesUsed) return undefined;
     pos += outer.bytesUsed;
 
     if (der[pos++] !== 0x30) return undefined;
     const tbs = readLength(der, pos);
+    if (!tbs || tbs.length > der.length - pos - tbs.bytesUsed) return undefined;
     pos += tbs.bytesUsed + tbs.length;
 
     if (der[pos++] !== 0x30) return undefined;
     const sigAlg = readLength(der, pos);
+    if (!sigAlg || sigAlg.length > der.length - pos - sigAlg.bytesUsed) return undefined;
     pos += sigAlg.bytesUsed;
 
     if (der[pos++] !== 0x06) return undefined;
     const oid = readLength(der, pos);
+    if (!oid || oid.length > der.length - pos - oid.bytesUsed) return undefined;
     pos += oid.bytesUsed;
 
     const oidStr = decodeOid(der.subarray(pos, pos + oid.length));
+    if (!oidStr) return undefined;
     return SIG_OID_NAMES[oidStr] ?? oidStr;
   } catch {
     return undefined;
