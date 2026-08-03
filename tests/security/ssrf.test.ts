@@ -39,10 +39,10 @@ describe("guardUrl", () => {
   );
 
   it("allows a public IPv6 literal", async () => {
-    await expect(guardUrl("https://[2001:db8::1]")).resolves.toMatchObject({
+    await expect(guardUrl("https://[2001:4860:4860::8888]")).resolves.toMatchObject({
       ok: true,
       family: 6,
-      addresses: [{ address: "2001:db8::1", family: 6 }],
+      addresses: [{ address: "2001:4860:4860::8888", family: 6 }],
     });
   });
 

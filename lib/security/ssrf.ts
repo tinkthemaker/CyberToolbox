@@ -53,6 +53,14 @@ function isBlockedV6(addr: string): boolean {
   if (lower.startsWith("::ffff:")) {
     const v4 = lower.slice(7);
     if (net.isIP(v4) === 4) return isBlockedV4(v4);
+    const mapped = v4.match(/^([0-9a-f]{1,4}):([0-9a-f]{1,4})$/);
+    if (mapped) {
+      const high = Number.parseInt(mapped[1], 16);
+      const low = Number.parseInt(mapped[2], 16);
+      return isBlockedV4(
+        `${high >> 8}.${high & 255}.${low >> 8}.${low & 255}`,
+      );
+    }
   }
   if (/^ff[0-9a-f]{2}:/.test(lower)) return true;
   return false;
@@ -107,7 +115,7 @@ export async function guardUrl(input: string): Promise<GuardResult> {
     return { ok: false, reason: "Only http and https are allowed." };
   }
 
-  const hostname = url.hostname;
+  const hostname = url.hostname.replace(/^\[|\]$/g, "");
   if (!hostname) return { ok: false, reason: "Missing hostname." };
 
   const literal = net.isIP(hostname);
