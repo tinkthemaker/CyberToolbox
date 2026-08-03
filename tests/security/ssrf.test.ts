@@ -31,7 +31,7 @@ describe("guardUrl", () => {
     });
   });
 
-  it.each(["::1", "fe80::1", "fc00::1", "ff02::1", "::ffff:127.0.0.1"])(
+  it.each(["::1", "fe80::1", "fc00::1", "ff02::1", "::ffff:127.0.0.1", "2001:db8::1"])(
     "rejects blocked IPv6 literal %s",
     async (host) => {
       await expect(guardUrl(`https://[${host}]`)).resolves.toMatchObject({ ok: false });
@@ -53,14 +53,14 @@ describe("guardUrl", () => {
   it("allows all-public DNS answers and returns every address", async () => {
     vi.spyOn(dns, "lookup").mockResolvedValue([
       { address: "93.184.216.34", family: 4 },
-      { address: "2001:db8::2", family: 6 },
+      { address: "2001:4860:4860::8888", family: 6 },
     ] as never);
     await expect(guardUrl("https://example.com")).resolves.toMatchObject({
       ok: true,
       ip: "93.184.216.34",
       addresses: [
         { address: "93.184.216.34", family: 4 },
-        { address: "2001:db8::2", family: 6 },
+        { address: "2001:4860:4860::8888", family: 6 },
       ],
     });
   });

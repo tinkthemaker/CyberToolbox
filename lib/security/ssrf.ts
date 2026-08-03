@@ -50,6 +50,7 @@ function isBlockedV6(addr: string): boolean {
   if (lower === "::" || lower === "::1") return true;
   if (/^fe[89ab][0-9a-f]:/.test(lower)) return true;
   if (/^f[cd][0-9a-f]{2}:/.test(lower)) return true;
+  if (/^2001:db8:/.test(lower)) return true;
   if (lower.startsWith("::ffff:")) {
     const v4 = lower.slice(7);
     if (net.isIP(v4) === 4) return isBlockedV4(v4);
