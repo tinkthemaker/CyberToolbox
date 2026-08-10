@@ -65,8 +65,6 @@ export default function JwtInspectorPage() {
     | { kind: "error"; message: string }
   >({ kind: "idle" });
   const wordlistRef = useRef<string[] | null>(null);
-  const resultsHeadingRef = useRef<HTMLHeadingElement>(null);
-  const hadParsedResult = useRef(false);
 
   const parsed = useMemo(() => parseJwt(input), [input]);
   const findings = useMemo(() => (parsed.ok ? analyzeJwt(parsed.jwt) : []), [parsed]);
@@ -77,11 +75,6 @@ export default function JwtInspectorPage() {
     setVerifyState({ kind: "idle" });
     setCrackState({ kind: "idle" });
   }, [input]);
-
-  useEffect(() => {
-    if (parsed.ok && !hadParsedResult.current) resultsHeadingRef.current?.focus();
-    hadParsedResult.current = parsed.ok;
-  }, [parsed.ok]);
 
   async function loadWordlist(): Promise<string[]> {
     if (wordlistRef.current) return wordlistRef.current;
@@ -173,10 +166,6 @@ export default function JwtInspectorPage() {
         className="w-full rounded-2xl border border-ink-700 bg-ink-900/60 px-4 py-3 font-mono text-sm text-slate-100 placeholder-slate-500 focus:outline-none focus:border-accent-500/60 resize-y"
       />
 
-      <div role="status" aria-live="polite">
-        <h2 ref={resultsHeadingRef} tabIndex={-1} className="sr-only">
-          Decoded token results
-        </h2>
       {input && !parsed.ok && (
         <div
           id="jwt-error"
@@ -346,7 +335,6 @@ export default function JwtInspectorPage() {
           </section>
         </>
       )}
-      </div>
     </div>
   );
 }

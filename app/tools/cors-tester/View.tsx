@@ -93,13 +93,13 @@ export default function CorsTesterPage() {
           CORS test results
         </h2>
         {error && (
-        <div
-          id="cors-error"
-          role="alert"
-          className="rounded-xl border border-rose-500/40 bg-rose-500/10 px-4 py-3 text-sm text-rose-200"
-        >
-          {error}
-        </div>
+          <div
+            id="cors-error"
+            role="alert"
+            className="rounded-xl border border-rose-500/40 bg-rose-500/10 px-4 py-3 text-sm text-rose-200"
+          >
+            {error}
+          </div>
         )}
 
         {loading && (
