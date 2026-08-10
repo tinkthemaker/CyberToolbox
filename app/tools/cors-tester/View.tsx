@@ -1,6 +1,6 @@
 "use client";
 
-import { useState } from "react";
+import { useEffect, useRef, useState } from "react";
 import { CorsReportView } from "@/components/CorsReportView";
 import type { CorsReport } from "@/lib/cors/types";
 
@@ -9,9 +9,12 @@ export default function CorsTesterPage() {
   const [report, setReport] = useState<CorsReport | null>(null);
   const [error, setError] = useState<string | null>(null);
   const [loading, setLoading] = useState(false);
+  const resultsHeadingRef = useRef<HTMLHeadingElement>(null);
+  const hadResult = useRef(false);
 
   async function onSubmit(e: React.FormEvent) {
     e.preventDefault();
+    if (loading) return;
     setLoading(true);
     setError(null);
     setReport(null);
@@ -34,6 +37,12 @@ export default function CorsTesterPage() {
     }
   }
 
+  useEffect(() => {
+    const hasResult = report !== null || error !== null;
+    if (hasResult && !hadResult.current) resultsHeadingRef.current?.focus();
+    hadResult.current = hasResult;
+  }, [report, error]);
+
   return (
     <div className="space-y-8">
       <header>
@@ -53,7 +62,11 @@ export default function CorsTesterPage() {
         onSubmit={onSubmit}
         className="flex flex-col sm:flex-row gap-2 rounded-2xl border border-ink-700 bg-ink-900/60 p-2"
       >
+        <label htmlFor="cors-url" className="sr-only">
+          URL to test for CORS
+        </label>
         <input
+          id="cors-url"
           type="text"
           value={url}
           onChange={(e) => setUrl(e.target.value)}
@@ -62,6 +75,8 @@ export default function CorsTesterPage() {
           autoFocus
           spellCheck={false}
           autoComplete="off"
+          aria-describedby={error ? "cors-error" : undefined}
+          aria-invalid={error ? true : undefined}
           className="flex-1 bg-transparent px-4 py-3 font-mono text-sm text-slate-100 placeholder-slate-500 focus:outline-none"
         />
         <button
@@ -73,20 +88,29 @@ export default function CorsTesterPage() {
         </button>
       </form>
 
-      {error && (
-        <div className="rounded-xl border border-rose-500/40 bg-rose-500/10 px-4 py-3 text-sm text-rose-200">
-          {error}
-        </div>
-      )}
+      <div role="status" aria-live="polite" aria-busy={loading}>
+        <h2 ref={resultsHeadingRef} tabIndex={-1} className="sr-only">
+          CORS test results
+        </h2>
+        {error && (
+          <div
+            id="cors-error"
+            role="alert"
+            className="rounded-xl border border-rose-500/40 bg-rose-500/10 px-4 py-3 text-sm text-rose-200"
+          >
+            {error}
+          </div>
+        )}
 
-      {loading && (
-        <div className="rounded-2xl border border-ink-700 bg-ink-900/40 p-10 text-center text-slate-400">
-          <div className="inline-block h-6 w-6 rounded-full border-2 border-accent-500/30 border-t-accent-500 animate-spin mb-3" />
-          <p className="text-sm">Sending Origin probes…</p>
-        </div>
-      )}
+        {loading && (
+          <div className="rounded-2xl border border-ink-700 bg-ink-900/40 p-10 text-center text-slate-400">
+            <div className="inline-block h-6 w-6 rounded-full border-2 border-accent-500/30 border-t-accent-500 animate-spin mb-3" />
+            <p className="text-sm">Sending Origin probes…</p>
+          </div>
+        )}
 
-      {report && <CorsReportView report={report} />}
+        {report && <CorsReportView report={report} />}
+      </div>
     </div>
   );
 }

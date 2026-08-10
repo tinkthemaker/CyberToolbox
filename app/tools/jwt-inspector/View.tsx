@@ -86,14 +86,15 @@ export default function JwtInspectorPage() {
   }
 
   async function onVerify() {
-    if (!parsed.ok) return;
+    if (!parsed.ok || verifyState.kind === "checking") return;
     setVerifyState({ kind: "checking" });
     const r = await verifyWithSecret(parsed.jwt, secret);
     setVerifyState({ kind: "result", ok: r.verified, reason: r.reason });
   }
 
   async function onCrack() {
-    if (!parsed.ok) return;
+    if (!parsed.ok || crackState.kind === "running") return;
+    setCrackState({ kind: "running", tried: 0, total: 0 });
     try {
       const list = await loadWordlist();
       setCrackState({ kind: "running", tried: 0, total: list.length });
@@ -126,7 +127,7 @@ export default function JwtInspectorPage() {
       </header>
 
       <div className="flex flex-wrap items-center gap-2 text-xs">
-        <span className="text-slate-500 mr-2">Try a sample:</span>
+        <span className="text-slate-400 mr-2">Try a sample:</span>
         {SAMPLES.map((s) => (
           <button
             key={s.label}
@@ -149,18 +150,28 @@ export default function JwtInspectorPage() {
         )}
       </div>
 
+      <label htmlFor="jwt-token" className="sr-only">
+        JSON Web Token
+      </label>
       <textarea
+        id="jwt-token"
         value={input}
         onChange={(e) => setInput(e.target.value)}
         placeholder="Paste a JWT (eyJ…)"
         spellCheck={false}
         autoComplete="off"
+        aria-describedby={input && !parsed.ok ? "jwt-error" : undefined}
+        aria-invalid={input && !parsed.ok ? true : undefined}
         rows={4}
         className="w-full rounded-2xl border border-ink-700 bg-ink-900/60 px-4 py-3 font-mono text-sm text-slate-100 placeholder-slate-500 focus:outline-none focus:border-accent-500/60 resize-y"
       />
 
       {input && !parsed.ok && (
-        <div className="rounded-xl border border-rose-500/40 bg-rose-500/10 px-4 py-3 text-sm text-rose-200">
+        <div
+          id="jwt-error"
+          role="alert"
+          className="rounded-xl border border-rose-500/40 bg-rose-500/10 px-4 py-3 text-sm text-rose-200"
+        >
           {parsed.reason}
         </div>
       )}
@@ -220,17 +231,22 @@ export default function JwtInspectorPage() {
                 <h2 className="text-sm font-semibold uppercase tracking-wider text-slate-300">
                   Verify with secret
                 </h2>
-                <p className="text-xs text-slate-500 mt-1">
+                <p className="text-xs text-slate-400 mt-1">
                   HMAC verification uses the browser&apos;s Web Crypto API.
                 </p>
                 <div className="mt-3 flex flex-col sm:flex-row gap-2">
+                  <label htmlFor="jwt-secret" className="sr-only">
+                    HMAC secret
+                  </label>
                   <input
+                    id="jwt-secret"
                     type="text"
                     value={secret}
                     onChange={(e) => setSecret(e.target.value)}
                     placeholder="HS256 secret"
                     spellCheck={false}
                     autoComplete="off"
+                    aria-describedby={verifyState.kind === "result" ? "jwt-verify-result" : undefined}
                     className="flex-1 rounded-xl border border-ink-700 bg-ink-950/60 px-3 py-2 font-mono text-sm text-slate-100 placeholder-slate-500 focus:outline-none focus:border-accent-500/60"
                   />
                   <button
@@ -244,6 +260,9 @@ export default function JwtInspectorPage() {
                 </div>
                 {verifyState.kind === "result" && (
                   <p
+                    id="jwt-verify-result"
+                    role="status"
+                    aria-live="polite"
                     className={`mt-3 text-sm ${
                       verifyState.ok ? "text-emerald-300" : "text-rose-300"
                     }`}
@@ -261,7 +280,7 @@ export default function JwtInspectorPage() {
                 <h2 className="text-sm font-semibold uppercase tracking-wider text-slate-300">
                   Try common secrets
                 </h2>
-                <p className="text-xs text-slate-500 mt-1">
+                <p className="text-xs text-slate-400 mt-1">
                   Loads a small wordlist (~100 entries) and HMAC-verifies the token against each
                   one in the browser. Useful for catching dev/test secrets that shipped to prod.
                 </p>
@@ -275,12 +294,12 @@ export default function JwtInspectorPage() {
                 </button>
 
                 {crackState.kind === "running" && (
-                  <p className="mt-3 text-xs text-slate-400 font-mono">
+                  <p role="status" aria-live="polite" className="mt-3 text-xs text-slate-400 font-mono">
                     {crackState.tried} / {crackState.total} candidates…
                   </p>
                 )}
                 {crackState.kind === "done" && crackState.secret !== null && (
-                  <div className="mt-3 rounded-xl border border-rose-500/40 bg-rose-500/10 px-3 py-2">
+                  <div role="status" aria-live="polite" className="mt-3 rounded-xl border border-rose-500/40 bg-rose-500/10 px-3 py-2">
                     <p className="text-rose-200 text-sm font-semibold">Secret found!</p>
                     <p className="text-xs text-rose-200/80 mt-1">
                       The token was signed with{" "}
@@ -292,13 +311,13 @@ export default function JwtInspectorPage() {
                   </div>
                 )}
                 {crackState.kind === "done" && crackState.secret === null && (
-                  <p className="mt-3 text-sm text-slate-400">
+                  <p role="status" aria-live="polite" className="mt-3 text-sm text-slate-400">
                     No match in the small built-in wordlist. (Tried {crackState.tried} in{" "}
                     {crackState.durationMs} ms — this doesn&apos;t mean the secret is strong.)
                   </p>
                 )}
                 {crackState.kind === "error" && (
-                  <p className="mt-3 text-sm text-rose-300">{crackState.message}</p>
+                  <p role="alert" className="mt-3 text-sm text-rose-300">{crackState.message}</p>
                 )}
               </div>
             </section>

@@ -19,7 +19,7 @@ export function SeverityBadge({ severity }: { severity: Severity }) {
     <span
       className={`inline-flex items-center gap-1.5 text-[11px] uppercase tracking-wider font-semibold px-2 py-0.5 rounded-full border ${STYLES[severity]}`}
     >
-      <span className="h-1.5 w-1.5 rounded-full bg-current opacity-90" />
+      <span aria-hidden="true" className="h-1.5 w-1.5 rounded-full bg-current opacity-90" />
       {LABELS[severity]}
     </span>
   );
