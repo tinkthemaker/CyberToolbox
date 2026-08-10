@@ -20,21 +20,21 @@ function CertCard({ cert, isLeaf }: { cert: ParsedCert; isLeaf: boolean }) {
     <div className="rounded-2xl border border-ink-700 bg-ink-900/40 p-5 space-y-3">
       <div className="flex items-center justify-between gap-3">
         <span className="text-[10px] uppercase tracking-wider text-accent-400/80">{role}</span>
-        <span className="text-[10px] uppercase tracking-wider text-slate-500 font-mono">
+        <span className="text-[10px] uppercase tracking-wider text-slate-400 font-mono">
           sha256:{shortFingerprint(cert.fingerprintSha256)}…
         </span>
       </div>
       <div>
-        <p className="text-xs uppercase tracking-wider text-slate-500">Subject</p>
+        <p className="text-xs uppercase tracking-wider text-slate-400">Subject</p>
         <p className="font-mono text-xs text-slate-200 break-all">{dn(cert.subject)}</p>
       </div>
       <div>
-        <p className="text-xs uppercase tracking-wider text-slate-500">Issuer</p>
+        <p className="text-xs uppercase tracking-wider text-slate-400">Issuer</p>
         <p className="font-mono text-xs text-slate-300 break-all">{dn(cert.issuer)}</p>
       </div>
       {cert.sans.length > 0 && (
         <div>
-          <p className="text-xs uppercase tracking-wider text-slate-500">SANs ({cert.sans.length})</p>
+          <p className="text-xs uppercase tracking-wider text-slate-400">SANs ({cert.sans.length})</p>
           <div className="font-mono text-xs text-slate-300 break-all">
             {cert.sans.slice(0, 8).join(", ")}
             {cert.sans.length > 8 ? `, +${cert.sans.length - 8} more` : ""}
@@ -43,11 +43,11 @@ function CertCard({ cert, isLeaf }: { cert: ParsedCert; isLeaf: boolean }) {
       )}
       <div className="grid grid-cols-2 gap-3 text-xs">
         <div>
-          <p className="uppercase tracking-wider text-slate-500">Valid from</p>
+          <p className="uppercase tracking-wider text-slate-400">Valid from</p>
           <p className="font-mono text-slate-300">{cert.validFrom.split("T")[0]}</p>
         </div>
         <div>
-          <p className="uppercase tracking-wider text-slate-500">Valid until</p>
+          <p className="uppercase tracking-wider text-slate-400">Valid until</p>
           <p
             className={`font-mono ${
               cert.expired
@@ -61,7 +61,7 @@ function CertCard({ cert, isLeaf }: { cert: ParsedCert; isLeaf: boolean }) {
           </p>
         </div>
         <div>
-          <p className="uppercase tracking-wider text-slate-500">Key</p>
+          <p className="uppercase tracking-wider text-slate-400">Key</p>
           <p className="font-mono text-slate-300">
             {cert.keyType.toUpperCase()}
             {cert.keyBits ? `-${cert.keyBits}` : ""}
@@ -69,7 +69,7 @@ function CertCard({ cert, isLeaf }: { cert: ParsedCert; isLeaf: boolean }) {
           </p>
         </div>
         <div>
-          <p className="uppercase tracking-wider text-slate-500">Signature</p>
+          <p className="uppercase tracking-wider text-slate-400">Signature</p>
           <p className="font-mono text-slate-300 break-all">
             {cert.signatureAlgorithm ?? "—"}
           </p>
@@ -86,16 +86,16 @@ export function CertReportView({ report }: { report: CertReport }) {
       <section className="rounded-2xl border border-ink-700 bg-ink-900/60 p-5">
         <div className="flex flex-col md:flex-row md:items-center md:justify-between gap-4">
           <div className="min-w-0">
-            <p className="text-xs uppercase tracking-wider text-slate-500">Target</p>
-            <p className="font-mono text-sm text-slate-200">
+            <p className="text-xs uppercase tracking-wider text-slate-400">Target</p>
+            <p className="font-mono text-sm text-slate-200 break-all">
               {target.host}:{target.port} → {target.ip}
             </p>
-            <p className="text-xs text-slate-500 mt-1">
+            <p className="text-xs text-slate-400 mt-1">
               {target.protocol ?? "?"} · {target.cipherName ?? "?"} · {target.responseTimeMs} ms ·{" "}
               {chain.length} cert{chain.length === 1 ? "" : "s"}
             </p>
           </div>
-          <div className="flex items-center gap-2">
+          <div className="flex flex-wrap items-center gap-2">
             <span
               className={`text-[11px] uppercase tracking-wider px-2 py-1 rounded-full border ${
                 authorized
@@ -119,15 +119,15 @@ export function CertReportView({ report }: { report: CertReport }) {
         <div className="mt-4 grid grid-cols-3 gap-2 text-center max-w-md">
           <div className="rounded-lg border border-emerald-500/30 bg-emerald-500/5 px-3 py-2">
             <p className="text-emerald-300 text-lg font-semibold">{summary.pass}</p>
-            <p className="text-[10px] uppercase tracking-wider text-slate-500">Pass</p>
+            <p className="text-[10px] uppercase tracking-wider text-slate-400">Pass</p>
           </div>
           <div className="rounded-lg border border-amber-500/30 bg-amber-500/5 px-3 py-2">
             <p className="text-amber-300 text-lg font-semibold">{summary.warn}</p>
-            <p className="text-[10px] uppercase tracking-wider text-slate-500">Warn</p>
+            <p className="text-[10px] uppercase tracking-wider text-slate-400">Warn</p>
           </div>
           <div className="rounded-lg border border-rose-500/30 bg-rose-500/5 px-3 py-2">
             <p className="text-rose-300 text-lg font-semibold">{summary.fail}</p>
-            <p className="text-[10px] uppercase tracking-wider text-slate-500">Fail</p>
+            <p className="text-[10px] uppercase tracking-wider text-slate-400">Fail</p>
           </div>
         </div>
       </section>
