@@ -31,12 +31,24 @@ describe("guardUrl", () => {
     });
   });
 
-  it.each(["::1", "fe80::1", "fc00::1", "ff02::1", "::ffff:127.0.0.1", "2001:db8::1"])(
-    "rejects blocked IPv6 literal %s",
-    async (host) => {
-      await expect(guardUrl(`https://[${host}]`)).resolves.toMatchObject({ ok: false });
-    },
-  );
+  it.each([
+    "::1",
+    "fe80::1",
+    "fc00::1",
+    "ff02::1",
+    "::ffff:127.0.0.1",
+    "::ffff:7f00:1",
+    "2001:db8::1",
+    "64:ff9b::7f00:1",
+    "64:ff9b::127.0.0.1",
+    "64:ff9b::a9fe:a9fe",
+    "64:ff9b:1::1",
+    "::127.0.0.1",
+    "::7f00:1",
+    "100::1",
+  ])("rejects blocked IPv6 literal %s", async (host) => {
+    await expect(guardUrl(`https://[${host}]`)).resolves.toMatchObject({ ok: false });
+  });
 
   it("allows a public IPv6 literal", async () => {
     await expect(guardUrl("https://[2001:4860:4860::8888]")).resolves.toMatchObject({
@@ -45,6 +57,13 @@ describe("guardUrl", () => {
       addresses: [{ address: "2001:4860:4860::8888", family: 6 }],
     });
   });
+
+  it.each(["64:ff9b::808:808", "64:ff9b::8.8.8.8", "::ffff:8.8.8.8"])(
+    "allows IPv6 literal %s embedding a public IPv4",
+    async (host) => {
+      await expect(guardUrl(`https://[${host}]`)).resolves.toMatchObject({ ok: true, family: 6 });
+    },
+  );
 
   it.each(["localhost", "api.localhost", "service.local"])("rejects local hostname %s", async (host) => {
     await expect(guardUrl(`https://${host}`)).resolves.toMatchObject({ ok: false });
