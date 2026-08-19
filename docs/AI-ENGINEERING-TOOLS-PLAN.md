@@ -7,6 +7,19 @@ This plan extends the toolbox into two adjacent areas — **AI/LLM security**
 without breaking any of the constraints that make the current codebase what it
 is.
 
+## The bar a new tool has to clear
+
+Beyond the architectural constraints below, the four live tools share a
+property worth stating explicitly, because it is the thing that makes them
+credible: **each one returns a verifiable fact.** The header is present or it
+is not. The certificate expires on a date. `alg` is `none` or it is not. The
+README's troubleshooting section actively invites the user to check the cert
+verdict against `openssl s_client` — the verdict survives that check.
+
+A tool that returns a *heuristic opinion* dressed as a verdict does not belong
+here, however useful the underlying idea. That test drove the cuts recorded at
+the end of this document.
+
 ## Constraints every proposal below respects
 
 Derived from the existing four tools, not invented for this document:
@@ -29,58 +42,29 @@ the cheapest and safest things to ship, exactly like JWT Inspector.
 
 ## Track A — AI / LLM security tools
 
-### A1. AI Crawler & Content Policy Auditor — *server route*
+### A4. MCP & Agent Config Auditor — *client-only* · **lead tool**
 
-**What:** Point it at a domain; it fetches and grades the site's AI-facing
-policy surface:
+**What:** Paste an MCP server config (`mcp.json`, `claude_desktop_config.json`,
+`.mcp.json`) and grade each server entry:
 
-- `/robots.txt` — directives for `GPTBot`, `ClaudeBot`, `Google-Extended`,
-  `CCBot`, `PerplexityBot`, `Bytespider`, `Applebot-Extended`, and friends;
-  flags "blocks nothing", "blocks everything", and self-contradicting groups.
-- `/llms.txt` and `/llms-full.txt` — presence, size, whether it points at
-  routes that 404.
-- `/.well-known/ai.txt`, `/ai.txt` — TDM/AI usage declarations.
-- Response headers — `X-Robots-Tag: noai, noimageai`, `TDM-Reservation`.
-- Cross-checks: `llms.txt` advertising paths that `robots.txt` disallows.
+- `npx -y <unpinned>` / `uvx` from a registry with no version pin — silent
+  remote-code update on every launch.
+- Inline secrets in `env` (hand off to the A3 pattern set — shared module).
+- Filesystem servers rooted at `/`, `~`, or the home directory.
+- `command: bash -c …` / shell-wrapped launches.
+- Remote servers over plain `http://`, or pointed at an IP literal.
+- Tool-permission blocks that pre-approve broad wildcards.
 
-**Why it earns a slot:** it is a real, current gap that nobody has a clean
-checker for, and it is *pure fetch + parse* — the exact shape of Misconfig
-Mapper. Highest value-to-risk ratio in this plan.
+**Why it leads:** every rule is a fact, not a heuristic — a package without a
+version pin *is* unpinned; a server on `http://` *is* plaintext; a root at `~`
+*is* the whole home directory. Real threat model (supply-chain RCE), genuinely
+under-served by existing tooling, and it takes the same client-only posture as
+JWT Inspector: the config never leaves the tab.
 
-**Files:** `lib/aipolicy/{fetch,robots,llmstxt,analyze,types}.ts`,
-`app/api/tools/ai-policy/route.ts`, `app/tools/ai-policy/{page,View}.tsx`,
-`tests/aipolicy/analyze.test.ts`. Add `maxDuration: 15` to `vercel.json`.
+**Files:** `lib/mcplint/{rules,analyze,types}.ts`,
+`app/tools/mcp-auditor/{page,View}.tsx`, `tests/mcplint/rules.test.ts`.
 
-**Effort:** M. Network: 4–6 guarded GETs. OWASP: A05 + LLM-adjacent.
-
----
-
-### A2. Prompt Injection Linter — *client-only*
-
-**What:** Paste a system prompt / RAG or agent template; get graded findings on
-structural weaknesses:
-
-- Untrusted content interpolated with **no delimiter** (`{{context}}`,
-  `${userInput}` sitting inline in instruction text).
-- Missing "content below is data, not instructions" framing.
-- Instruction-override bait already present in the text ("ignore previous…").
-- **Secrets in the prompt** — API keys, internal hostnames, connection strings.
-- Tool/authority language without a confirmation gate ("you may run any
-  command", "always approve").
-- No output-format constraint, so injected output flows straight downstream.
-- Conflicting or duplicated instructions; unreachable trailing rules.
-
-**Why:** maps to **OWASP LLM01 (Prompt Injection)** and **LLM06 (Sensitive
-Information Disclosure)**, runs entirely in the tab (prompts are sensitive —
-the "your text never leaves your browser" story is the same one JWT Inspector
-already tells and it lands well), and it is 100% pure functions, so it is
-trivially testable.
-
-**Files:** `lib/promptlint/{rules,analyze,types}.ts`,
-`app/tools/prompt-linter/{page,View}.tsx`, `tests/promptlint/rules.test.ts`.
-No route, no `vercel.json` change.
-
-**Effort:** M (the rule set is the work, not the plumbing). Network: none.
+**Effort:** M. Network: none. Depends on: A3 (shared secret patterns).
 
 ---
 
@@ -97,9 +81,10 @@ PEM blocks.
 
 Each finding gets a remediation line: rotate first, then purge history.
 
-**Why:** ships in an afternoon, is genuinely useful, and pairs naturally with
-A4 below. Same client-only safety posture — the pasted secret never leaves the
-tab, which is the whole point.
+**Why:** a prefix either matches or it does not, so the verdict is checkable.
+Novelty is admittedly low — gitleaks and trufflehog cover this ground better —
+but it is an afternoon of work and **A4 needs the pattern module anyway**, so
+build it first and let A4 import it.
 
 **Files:** `lib/secretlint/{patterns,entropy,analyze}.ts`,
 `app/tools/secret-linter/{page,View}.tsx`, `tests/secretlint/*.test.ts`.
@@ -108,52 +93,46 @@ tab, which is the whole point.
 
 ---
 
-### A4. MCP & Agent Config Auditor — *client-only*
+### A1. AI Crawler & Content Policy Auditor — *server route* · **scope decision required**
 
-**What:** Paste an MCP server config (`mcp.json`, `claude_desktop_config.json`,
-`.mcp.json`) and grade each server entry:
+**What:** Point it at a domain; it fetches and grades the site's AI-facing
+policy surface:
 
-- `npx -y <unpinned>` / `uvx` from a registry with no version pin — silent
-  remote-code update on every launch.
-- Inline secrets in `env` (hand off to the A3 pattern set — shared module).
-- Filesystem servers rooted at `/`, `~`, or the home directory.
-- `command: bash -c …` / shell-wrapped launches.
-- Remote servers over plain `http://`, or pointed at an IP literal.
-- Tool-permission blocks that pre-approve broad wildcards.
+- `/robots.txt` — directives for `GPTBot`, `ClaudeBot`, `Google-Extended`,
+  `CCBot`, `PerplexityBot`, `Bytespider`, `Applebot-Extended`, and friends;
+  flags "blocks nothing", "blocks everything", and self-contradicting groups.
+- `/llms.txt` and `/llms-full.txt` — presence, size, whether it points at
+  routes that 404.
+- `/.well-known/ai.txt`, `/ai.txt` — TDM/AI usage declarations.
+- Response headers — `X-Robots-Tag: noai, noimageai`, `TDM-Reservation`.
+- Cross-checks: `llms.txt` advertising paths that `robots.txt` disallows.
 
-**Why:** this is where "AI" and "security misconfiguration" actually meet in
-2026, and there is no tidy checker for it. Strong differentiator for a
-portfolio piece; reuses A3's pattern module so the marginal cost is low.
+**Technically the cleanest proposal here** — pure fetch + parse, the exact
+shape of Misconfig Mapper, reusing its fetch layer almost verbatim, and every
+output is a fact.
 
-**Files:** `lib/mcplint/{rules,analyze,types}.ts`,
-`app/tools/mcp-auditor/{page,View}.tsx`, `tests/mcplint/rules.test.ts`.
+**But it is not a security tool.** It audits content licensing and crawler
+policy. There is no honest OWASP mapping for it; an earlier draft of this
+document claimed "A05 + LLM-adjacent" and that was a fudge. Shipping it means
+the site's remit widens from "web-security tools" to something closer to "web
+surface auditing" — including the tagline, the About page, and the OG copy.
 
-**Effort:** M. Network: none. Depends on: A3 (shared secret patterns).
+**That is a product decision, not a technical one** — see *Decisions needed*
+below. Build it if the answer is yes; drop it cleanly if the answer is no.
 
----
+**Files:** `lib/aipolicy/{fetch,robots,llmstxt,analyze,types}.ts`,
+`app/api/tools/ai-policy/route.ts`, `app/tools/ai-policy/{page,View}.tsx`,
+`tests/aipolicy/analyze.test.ts`. Add `maxDuration: 15` to `vercel.json`.
 
-### A5. Exposed AI Endpoint Probe — *server route, ship last*
-
-**What:** Same probe pattern as `lib/misconfig/probes.ts`, aimed at unauthenticated
-AI infrastructure left open on a host: `/v1/models`, `/v1/chat/completions`
-(GET → expect 401/405, flag a 200), Ollama `/api/tags`, LangServe `/invoke`,
-Gradio `/config`, `/openapi.json`, vector-DB consoles.
-
-**Why it is last:** it is the only proposal that is meaningfully *active*
-probing. It stays inside what the toolbox already does (`.git/HEAD` and
-`/server-status` probes are the same class), but it deserves the strictest
-treatment: GET/HEAD only, no request bodies, never send a prompt, an explicit
-"only scan what you own" interstitial, and short timeouts.
-
-**Files:** `lib/aiendpoints/{probes,analyze,types}.ts`,
-`app/api/tools/ai-endpoints/route.ts`, `app/tools/ai-endpoints/{page,View}.tsx`,
-`tests/aiendpoints/analyze.test.ts`. `vercel.json`: `maxDuration: 20`.
-
-**Effort:** M. Network: ~8 guarded probes. OWASP: A05 / LLM.
+**Effort:** M. Network: 4–6 guarded GETs.
 
 ---
 
 ## Track B — Engineering hygiene tools
+
+All four are in scope and sequenced below. They are conventional web-quality
+tools rather than novel ones, which is the point: they are well-understood,
+their verdicts are checkable, and each reuses machinery the toolbox already has.
 
 ### B1. DNS & Email Hygiene Check — *server route, `node:dns` only*
 
@@ -163,8 +142,8 @@ for common selectors, MX sanity, CAA presence, DNSSEC (`DS` record), and
 dangling-CNAME subdomain-takeover signals.
 
 Uses `node:dns/promises` — **no HTTP at all**, so the SSRF surface is nil.
-Pairs naturally with the existing TLS viewer. **Effort:** M. **Highest value in
-Track B.**
+Pairs naturally with the existing TLS viewer. **Effort:** M. **Strongest tool
+in Track B.**
 
 ### B2. Open Redirect Tester — *server route*
 
@@ -180,21 +159,25 @@ the `Location` header: same-origin (pass), off-site (fail), protocol-relative
 Grades `Cache-Control` on HTML vs static assets, `Vary` correctness (the
 `Vary: Origin` bug the CORS tester already hints at), `ETag`/`Last-Modified`,
 `Age`/CDN headers, compression negotiation, and the classic *private data
-cached publicly* pattern. Cheap: one or two requests, reuses everything.
-**Effort:** S.
+cached publicly* pattern — which is a genuine confidentiality bug, not just a
+performance one, and is the finding that most justifies the tool's slot.
+Cheap: one or two requests, reuses everything. **Effort:** S.
 
 ### B4. Robots & Sitemap Auditor — *server route*
 
-Also on the README list; largely **free if A1 ships first** — the robots.txt
-parser and fetch layer are the same module. Adds sitemap XML validation, URL
-count/size caps, `robots.txt` ↔ sitemap disagreement, and 404/redirect
-sampling. **Effort:** S when built after A1.
+Also on the README list. Validates sitemap XML, URL count/size caps,
+`robots.txt` ↔ sitemap disagreement, and 404/redirect sampling of advertised
+URLs.
+
+**Dependency note:** this shares a `robots.txt` parser with A1. If A1 ships,
+B4 is nearly free (**S**); if A1 is dropped on scope grounds, B4 carries the
+parser itself and costs **M**. Sequence it after the A1 decision either way.
 
 ---
 
 ## Track C — Engineering enablement (repo-internal)
 
-Small, unglamorous, pays for itself by tool #6:
+Small, unglamorous, pays for itself by tool #4:
 
 1. **`CLAUDE.md`** at the repo root — the "adding a new tool" contract from the
    README, plus the non-negotiables (`safeFetch`, `rateLimit`, no new deps,
@@ -208,25 +191,25 @@ Small, unglamorous, pays for itself by tool #6:
 4. **Registry contract test** — one test asserting every `live` tool has a
    reachable `href`, a unique `id`, and, when `apiPath` is set, a matching
    `vercel.json` entry. Catches the most likely copy-paste mistake.
-5. **Shared probe harness** — A1, A5, B2, B3, B4 all do "fire N guarded
+5. **Shared probe harness** — A1, B2, B3, and B4 all do "fire N guarded
    requests, collect status + headers, classify". Factor that out of
    `lib/misconfig/probes.ts` into `lib/security/probe-runner.ts` **before**
-   the third consumer, not after the fifth.
+   the third consumer, not after the fourth.
 
 ---
 
 ## Sequencing
 
-Each phase is independently shippable, and each is one PR per tool.
+Each phase is independently shippable, one PR per tool.
 
 | Phase | Ships | Rationale |
 | --- | --- | --- |
 | **0** | C1 (`CLAUDE.md`), C2 (scaffolder), C4 (registry test) | ~half a day; every later tool gets cheaper. |
-| **1** | **A2 Prompt Injection Linter**, **A3 Key Leak Linter** | Client-only: no network, no route, no new attack surface. Fastest path to "the toolbox does AI now". |
-| **2** | **A1 AI Crawler & Policy Auditor** + C5 (probe harness) | First AI server tool; extract the shared harness while there are exactly two consumers. |
-| **3** | **A4 MCP Config Auditor**, **B1 DNS & Email Hygiene** | The two strongest differentiators. A4 reuses A3; B1 reuses nothing but adds a new primitive (`node:dns`). |
-| **4** | **B4 Robots/Sitemap**, **B3 Cache/Compression**, **B2 Open Redirect** | Cheap fills once the harness exists. |
-| **5** | **A5 Exposed AI Endpoint Probe** | Ships last, deliberately: most active probing, needs the strictest guardrails and the clearest consent copy. |
+| **1** | **A3 Key Leak Linter** → **A4 MCP Config Auditor** | Client-only: no network, no route, no new attack surface. A3 first because A4 imports its pattern module. A4 is the differentiator — lead the announcement with it. |
+| **2** | **B1 DNS & Email Hygiene** | Adds a new primitive (`node:dns`) with zero HTTP surface. |
+| **3** | **B2 Open Redirect** + C5 (probe harness) | First new consumer of the fetch layer; extract the shared harness here, while there are two consumers rather than four. |
+| **4** | **B3 Cache & Compression**, **B4 Robots & Sitemap** | Cheap fills once the harness exists. |
+| **5** | **A1 AI Crawler & Policy Auditor** | Gated on the scope decision below. If yes, it also retro-cheapens B4's parser. |
 
 ## Definition of done, per tool
 
@@ -240,14 +223,52 @@ Each phase is independently shippable, and each is one PR per tool.
 6. README table row + `docs/` note if the tool has a non-obvious threat model.
 7. `npm run typecheck && npm run test && npm run lint && npm run build` green.
 
-## Open questions
+---
 
-- **Naming:** does the site want an explicit "AI" category on the home grid, or
-  do these just mix into the existing list? The registry has `tags` already —
-  an `ai` tag plus a filter row on `app/page.tsx` is a small change.
-- **OWASP refs:** the registry's `owaspRefs` currently carries Top 10 (Web)
-  strings. AI tools want *OWASP Top 10 for LLM Applications* refs
-  (`LLM01:2025 - Prompt Injection`). Recommend keeping one field and letting
-  the string carry the taxonomy, rather than adding a second field.
-- **A5 consent:** the existing tools warn in prose. An active AI-endpoint probe
-  may warrant a checkbox before the first scan. Product call, not a technical one.
+## Considered and cut
+
+Recorded with reasoning so the calls are reviewable, and reversible in one
+commit if the reasoning does not hold up.
+
+### Prompt Injection Linter — cut
+
+Paste a system prompt or RAG template, get findings on undelimited
+interpolation, missing "data, not instructions" framing, instruction-override
+bait, and ungated tool authority.
+
+**Why cut:** it fails the verifiable-fact bar. "Missing data-vs-instruction
+framing" is a regex heuristic the user cannot check, and it will false-positive
+heavily on ordinary prompts. The deeper problem is the green verdict: there is
+no known structural fix for prompt injection, so a passing grade would imply an
+assurance the tool cannot back — worse than shipping nothing in a security
+toolbox. Its one genuinely checkable rule, *secrets embedded in the prompt*, is
+already **A3**.
+
+### Exposed AI Endpoint Probe — cut
+
+Probe a host for unauthenticated AI infrastructure: `/v1/models`,
+`/v1/chat/completions`, Ollama `/api/tags`, LangServe `/invoke`, Gradio
+`/config`.
+
+**Why cut:** the toolbox's own safety guard removes the valuable case. The
+classic finding is an unauthenticated Ollama on an internal address, and
+`lib/security/ssrf.ts` blocks `10.0.0.0/8`, `172.16.0.0/12`, and
+`192.168.0.0/16` by design, re-checking on every redirect hop. (Ports are
+unrestricted, so `:11434` on a *public* IP is reachable — but that is the rare
+case, not the valuable one.) What remains is probing third parties' public
+inference endpoints: the most aggressive action in the box for the least yield.
+
+---
+
+## Decisions needed
+
+1. **Does the site's remit stay "web-security tools"?** This gates **A1**
+   (Phase 5) and changes B4's cost. Shipping A1 means widening the tagline,
+   About page, and OG copy toward "web surface auditing". Recommendation: decide
+   before Phase 4, since B4 shares A1's parser.
+2. **Do AI tools get their own home-grid category?** The registry already has
+   `tags` — an `ai` tag plus a filter row on `app/page.tsx` is a small change.
+3. **`owaspRefs` taxonomy.** AI tools want *OWASP Top 10 for LLM Applications*
+   refs (`LLM01:2025 - Prompt Injection`) alongside the existing web Top 10
+   strings. Recommendation: keep one field and let the string carry the
+   taxonomy, rather than adding a second field.

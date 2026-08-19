@@ -29,9 +29,9 @@ drop in cleanly.
 More tools planned (open-redirect tester, subdomain hygiene check, robots/sitemap
 auditor, JOSE algorithm confusion exerciser, etc.).
 
-An expansion into **AI/LLM security** (prompt-injection linter, AI crawler-policy
-auditor, MCP config auditor) and further engineering-hygiene tools is scoped in
-[`docs/AI-ENGINEERING-TOOLS-PLAN.md`](docs/AI-ENGINEERING-TOOLS-PLAN.md).
+An expansion into **AI/LLM security** (MCP config auditor, AI key-leak linter)
+and further engineering-hygiene tools (DNS/email hygiene, cache & compression)
+is scoped in [`docs/AI-ENGINEERING-TOOLS-PLAN.md`](docs/AI-ENGINEERING-TOOLS-PLAN.md).
 
 ---
 
