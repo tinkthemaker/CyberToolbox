@@ -57,7 +57,7 @@ common path:
 
 1. Push the repo to GitHub (or fork this one).
 2. Go to [vercel.com/new](https://vercel.com/new) and import the repo.
-   Next.js 14 is auto-detected — leave the build/output settings on default.
+   Next.js 15 is auto-detected — leave the build/output settings on default.
 3. Click **Deploy**. First build takes ~30 seconds.
 4. Visit your `*.vercel.app` URL. All four tools should work immediately.
 
@@ -257,7 +257,7 @@ push and pull request.
 
 ## Stack
 
-- **Next.js 14** (App Router) on **Vercel**
+- **Next.js 15** (App Router) on **Vercel**
 - **TypeScript 5** strict mode
 - **Tailwind 3** with a small dark palette (`ink-*` + `accent-*`)
 - **Web Crypto API** for the JWT crack (no Node crypto in the browser)
