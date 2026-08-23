@@ -1,7 +1,7 @@
 import { NextResponse } from "next/server";
-import { runScan } from "@/lib/misconfig/scan";
-import { rateLimit, clientKeyFromHeaders } from "@/lib/security/rate-limit";
+import { clientKeyFromHeaders, rateLimit } from "@/lib/security/rate-limit";
 import { readJsonRequest } from "@/lib/security/request";
+import { runSecurityTxtAudit } from "@/lib/securitytxt/scan";
 
 export const runtime = "nodejs";
 export const dynamic = "force-dynamic";
@@ -27,9 +27,7 @@ export async function POST(req: Request) {
     return NextResponse.json({ error: "Provide a 'url' string (max 2048 chars)." }, { status: 400 });
   }
 
-  const normalised = /^https?:\/\//i.test(url) ? url : `https://${url}`;
-
-  const result = await runScan(normalised);
+  const result = await runSecurityTxtAudit(url);
   if (!result.ok) {
     return NextResponse.json({ error: result.reason }, { status: 400 });
   }

@@ -59,9 +59,9 @@ describe("guardUrl", () => {
   });
 
   it.each(["64:ff9b::808:808", "64:ff9b::8.8.8.8", "::ffff:8.8.8.8"])(
-    "allows IPv6 literal %s embedding a public IPv4",
+    "rejects IPv6 literal %s embedding an IPv4 address",
     async (host) => {
-      await expect(guardUrl(`https://[${host}]`)).resolves.toMatchObject({ ok: true, family: 6 });
+      await expect(guardUrl(`https://[${host}]`)).resolves.toMatchObject({ ok: false });
     },
   );
 

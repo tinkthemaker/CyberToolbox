@@ -1,6 +1,7 @@
 import { NextResponse } from "next/server";
 import { runTlsScan } from "@/lib/tls/scan";
 import { rateLimit, clientKeyFromHeaders } from "@/lib/security/rate-limit";
+import { readJsonRequest } from "@/lib/security/request";
 
 export const runtime = "nodejs";
 export const dynamic = "force-dynamic";
@@ -16,14 +17,12 @@ export async function POST(req: Request) {
     );
   }
 
-  let payload: unknown;
-  try {
-    payload = await req.json();
-  } catch {
-    return NextResponse.json({ error: "Invalid JSON body." }, { status: 400 });
+  const parsed = await readJsonRequest(req);
+  if (!parsed.ok) {
+    return NextResponse.json({ error: parsed.error }, { status: parsed.status });
   }
 
-  const host = (payload as { host?: unknown })?.host;
+  const host = (parsed.value as { host?: unknown })?.host;
   if (typeof host !== "string" || host.length === 0 || host.length > 1024) {
     return NextResponse.json(
       { error: "Provide a 'host' string (e.g. example.com or example.com:443)." },

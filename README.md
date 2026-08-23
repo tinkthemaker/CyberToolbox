@@ -25,9 +25,21 @@ drop in cleanly.
 | **JWT Inspector** | A02 | Decodes a JWT in the browser (tokens never leave your tab), audits the header & payload (`alg:none`, `kid` injection, `jku`/`x5u`, embedded `jwk`, expired/long-lived tokens, missing `iss`/`aud`/`sub`, sensitive payload claims), verifies HMAC signatures via Web Crypto, and runs a built-in wordlist crack for HS256/384/512. |
 | **CORS Tester** | A05 | Sends 8 Origin probes — baseline, arbitrary cross-origin, `null`, suffix bypass, prefix bypass, subdomain trust, scheme downgrade, OPTIONS preflight — and grades the response. Flags the dangerous reflection-with-credentials pattern. |
 | **TLS / Cert Viewer** | A02 | Two-pass `node:tls` handshake (one strict for the trust verdict, one lenient for the chain). Walks the issuer chain, parses signature algorithm via a tiny built-in DER reader, and grades expiry tiers, hostname match, weak signature/key algorithms, protocol version, and cipher. |
+| **Security.txt Auditor** | RFC 9116 | Checks `/.well-known/security.txt` and `/security.txt`, parses disclosure-program fields, validates required Contact and Expires values, flags canonical mismatch, and reports malformed lines. |
 
-More tools planned (open-redirect tester, subdomain hygiene check, robots/sitemap
-auditor, JOSE algorithm confusion exerciser, etc.).
+More tools planned (DNS/email security checker, CSP analyzer, open-redirect tester,
+robots/sitemap auditor, JOSE algorithm confusion exerciser, etc.).
+
+---
+
+## What this demonstrates
+
+- Next.js App Router with server/client route boundaries and strict TypeScript.
+- SSRF-aware server-side scanning with redirect re-checks and blocked private address space.
+- Defensive API design: input caps, rate limits, bounded probes, and no third-party APIs or secrets.
+- Security-specific parsing and grading for JWTs, CORS behavior, TLS certificates, HTTP headers, cookies, exposed files, and RFC 9116 `security.txt` files.
+- Reusable finding/report components with evidence, remediation guidance, and severity scoring.
+- CI-friendly quality gates: typecheck, lint, test, and production build.
 
 ---
 
@@ -57,9 +69,9 @@ common path:
 
 1. Push the repo to GitHub (or fork this one).
 2. Go to [vercel.com/new](https://vercel.com/new) and import the repo.
-   Next.js 15 is auto-detected — leave the build/output settings on default.
+   Next.js 16 is auto-detected — leave the build/output settings on default.
 3. Click **Deploy**. First build takes ~30 seconds.
-4. Visit your `*.vercel.app` URL. All four tools should work immediately.
+4. Visit your `*.vercel.app` URL. All five tools should work immediately.
 
 Optional: set `SITE_URL` in Vercel's environment-variables panel to your final
 custom domain (e.g. `https://cybertoolbox.example.com`). It feeds `robots.txt`,
@@ -71,10 +83,10 @@ to Vercel's `VERCEL_URL`.
 | Concern | Handled by |
 | --- | --- |
 | Function runtimes | Each API route exports `runtime = "nodejs"` (needed for DNS resolution in the SSRF guard and `node:tls` for the cert viewer). |
-| Function timeouts | `vercel.json` sets `maxDuration` per route (15 s misconfig + cert, 20 s CORS) — well within the free tier's 10–60 s caps. |
+| Function timeouts | `vercel.json` sets `maxDuration` per route (15 s misconfig + cert + security.txt, 20 s CORS) — well within the free tier's 10–60 s caps. |
 | Static security headers | `vercel.json` applies HSTS, `X-Frame-Options: DENY`, `X-Content-Type-Options: nosniff`, `Referrer-Policy`, and `Permissions-Policy` to every response. |
-| Per-request CSP nonce | `middleware.ts` issues a fresh 128-bit nonce on every request and sets `Content-Security-Policy: ... script-src 'self' 'nonce-…' 'strict-dynamic' ...`. Next.js threads the nonce onto every inline hydration script automatically. No `'unsafe-inline'` for scripts. |
-| Edge-rendered OG image | `app/opengraph-image.tsx` runs on Vercel's edge runtime via `next/og`'s `ImageResponse`. |
+| Per-request CSP nonce | `proxy.ts` issues a fresh 128-bit nonce on every request and sets `Content-Security-Policy: ... script-src 'self' 'nonce-…' 'strict-dynamic' ...`. Next.js threads the nonce onto every inline hydration script automatically. No `'unsafe-inline'` for scripts. |
+| Generated OG image | `app/opengraph-image.tsx` renders dynamically via `next/og`'s `ImageResponse`. |
 | Nice URLs / 404s | App Router file-based routing + `app/not-found.tsx` listing live tools. |
 
 After deployment, point Misconfig Mapper at your own production URL — it
@@ -102,8 +114,9 @@ app/
 ├─ globals.css                       # Tailwind base + focus ring + skip-link
 ├─ not-found.tsx                     # Custom 404 (lists live tools)
 ├─ robots.ts | sitemap.ts            # SEO basics, runtime-rendered
-├─ opengraph-image.tsx               # Edge-rendered OG card via ImageResponse
+├─ opengraph-image.tsx               # Generated OG card via ImageResponse
 ├─ about/page.tsx                    # About page
+├─ methodology/page.tsx              # Defensive scope, severity, and limitations
 ├─ tools/<id>/
 │  ├─ page.tsx                       # Server shell, exports metadata
 │  └─ View.tsx                       # Client UI ("use client")
@@ -116,6 +129,7 @@ components/
 ├─ ScanReportView.tsx                # Misconfig report
 ├─ CorsReportView.tsx                # CORS probe matrix + findings
 ├─ CertReportView.tsx                # TLS chain cards + findings
+├─ SecurityTxtReportView.tsx         # RFC 9116 report
 ├─ JsonView.tsx                      # Coloured JSON for JWT decoded panels
 └─ CopyButton.tsx                    # Tiny reusable copy-to-clipboard
 
@@ -137,15 +151,19 @@ lib/
 ├─ cors/
 │  ├─ scan.ts                        # Probe set + analyzer
 │  └─ types.ts
+├─ securitytxt/
+│  ├─ analyze.ts                     # RFC 9116 parser + findings
+│  ├─ analyze.test.ts                # Vitest coverage for parser behavior
+│  └─ scan.ts                        # well-known/root fetch orchestration
 └─ tls/
    ├─ scan.ts                        # node:tls handshake, chain walk, analysis
    ├─ der.ts                         # ASN.1 walker → signature OID
    └─ types.ts
 
-middleware.ts                        # Per-request CSP nonce
+proxy.ts                             # Per-request CSP nonce
 public/jwt-wordlist.json             # Common dev/test secrets (~100 entries)
 vercel.json                          # Function maxDuration + static headers
-.github/workflows/ci.yml             # typecheck + lint + build on push/PR
+.github/workflows/ci.yml             # audit + typecheck + test + lint + build
 ```
 
 ---
@@ -166,22 +184,25 @@ network call:
      `198.18.0.0/15`, `198.51.100.0/24`, `203.0.113.0/24`,
      `100.64.0.0/10` (CGNAT), `224.0.0.0/4` (multicast),
      `240.0.0.0/4` (reserved), `255.255.255.255/32`.
-   - **IPv6**: `::`/`::1`, `fe80::/10` (link-local), `fc00::/7` (ULA),
-     `ff00::/8` (multicast), and IPv4-mapped (`::ffff:…`) addresses run
-     through the IPv4 list.
+   - **IPv6**: loopback/unspecified, link-local, unique-local, site-local,
+     multicast, NAT64, 6to4, documentation, and IPv4-mapped ranges.
 4. Hostnames `localhost` / `*.localhost` / `*.local` are rejected even if
    they resolve to a public IP.
 
 `safeFetch` follows redirects manually, re-applying the guard at every hop.
+Each connection is restricted to the validated public address set,
+closing the DNS-rebinding gap between lookup and connect. Responses are capped
+at 256 KB and each request times out after 6 seconds.
 
 ### Rate limiter (`lib/security/rate-limit.ts`)
 
-In-memory per-IP token bucket: 12 requests / minute. The map resets on a
-function cold start, which is acceptable for a portfolio deploy. For real
-traffic, swap in Vercel KV / Upstash Redis — `rateLimit()` is the only
-function to change.
+In-memory per-IP token bucket: 12 requests / minute with bounded key storage.
+The map resets on a function cold start, which is acceptable for a portfolio
+deploy. For strict multi-instance limits, swap in Vercel KV / Upstash Redis —
+`rateLimit()` is the only function to change. API routes also require JSON and
+cap each request body before parsing it.
 
-### Per-request CSP nonce (`middleware.ts`)
+### Per-request CSP nonce (`proxy.ts`)
 
 Issues a 128-bit base64 nonce per request, sets the CSP header on both
 the request (so Next.js's runtime threads it onto its inline scripts) and
@@ -247,23 +268,25 @@ npm run dev         # Next dev server with HMR
 npm run build       # Production build
 npm run start       # Production server (after build)
 npm run typecheck   # tsc --noEmit
-npm run lint        # next lint
+npm run lint        # ESLint
+npm run test        # Vitest unit tests
 ```
 
-CI (`.github/workflows/ci.yml`) runs `typecheck` + `lint` + `build` on every
-push and pull request.
+CI (`.github/workflows/ci.yml`) audits production dependencies and runs
+`typecheck` + `lint` + `test` + `build` on every push and pull request.
 
 ---
 
 ## Stack
 
-- **Next.js 15** (App Router) on **Vercel**
+- **Next.js 16** (App Router) on **Vercel**
 - **TypeScript 5** strict mode
 - **Tailwind 3** with a small dark palette (`ink-*` + `accent-*`)
 - **Web Crypto API** for the JWT crack (no Node crypto in the browser)
 - **`node:tls` + a tiny ASN.1 DER walker** for the cert viewer
+- **Vitest** for fast unit coverage of pure security parsers and graders
 - **No third-party JS deps** outside Next/React/Tailwind. Everything else
-  is hand-rolled and visible in `lib/`.
+  shipped to the browser is hand-rolled and visible in `lib/`.
 
 ---
 

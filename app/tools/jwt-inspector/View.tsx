@@ -1,6 +1,6 @@
 "use client";
 
-import { useEffect, useMemo, useRef, useState } from "react";
+import { useMemo, useRef, useState } from "react";
 import { parseJwt } from "@/lib/jwt/parse";
 import { analyzeJwt } from "@/lib/jwt/analyze";
 import { crackHmac, isHmacAlg, verifyWithSecret } from "@/lib/jwt/crack";
@@ -65,16 +65,19 @@ export default function JwtInspectorPage() {
     | { kind: "error"; message: string }
   >({ kind: "idle" });
   const wordlistRef = useRef<string[] | null>(null);
+  const operationIdRef = useRef(0);
 
   const parsed = useMemo(() => parseJwt(input), [input]);
   const findings = useMemo(() => (parsed.ok ? analyzeJwt(parsed.jwt) : []), [parsed]);
   const alg = parsed.ok ? (parsed.jwt.header as { alg?: unknown }).alg : undefined;
   const showHmacTools = parsed.ok && isHmacAlg(alg);
 
-  useEffect(() => {
+  function updateInput(value: string) {
+    operationIdRef.current += 1;
+    setInput(value);
     setVerifyState({ kind: "idle" });
     setCrackState({ kind: "idle" });
-  }, [input]);
+  }
 
   async function loadWordlist(): Promise<string[]> {
     if (wordlistRef.current) return wordlistRef.current;
@@ -87,20 +90,26 @@ export default function JwtInspectorPage() {
 
   async function onVerify() {
     if (!parsed.ok || verifyState.kind === "checking") return;
+    const operationId = operationIdRef.current;
     setVerifyState({ kind: "checking" });
     const r = await verifyWithSecret(parsed.jwt, secret);
+    if (operationId !== operationIdRef.current) return;
     setVerifyState({ kind: "result", ok: r.verified, reason: r.reason });
   }
 
   async function onCrack() {
     if (!parsed.ok || crackState.kind === "running") return;
+    const operationId = operationIdRef.current;
     setCrackState({ kind: "running", tried: 0, total: 0 });
     try {
       const list = await loadWordlist();
+      if (operationId !== operationIdRef.current) return;
       setCrackState({ kind: "running", tried: 0, total: list.length });
       const result = await crackHmac(parsed.jwt, list, (tried) =>
-        setCrackState({ kind: "running", tried, total: list.length }),
+        operationId === operationIdRef.current &&
+          setCrackState({ kind: "running", tried, total: list.length }),
       );
+      if (operationId !== operationIdRef.current) return;
       setCrackState({
         kind: "done",
         secret: result.secret,
@@ -108,6 +117,7 @@ export default function JwtInspectorPage() {
         durationMs: result.durationMs,
       });
     } catch (e) {
+      if (operationId !== operationIdRef.current) return;
       setCrackState({ kind: "error", message: e instanceof Error ? e.message : "crack failed" });
     }
   }
@@ -132,7 +142,7 @@ export default function JwtInspectorPage() {
           <button
             key={s.label}
             type="button"
-            onClick={() => setInput(s.jwt)}
+            onClick={() => updateInput(s.jwt)}
             className="rounded-full border border-ink-600 bg-ink-800/60 hover:border-accent-500/50 hover:text-accent-400 px-3 py-1 transition"
             title={s.note}
           >
@@ -142,7 +152,7 @@ export default function JwtInspectorPage() {
         {input && (
           <button
             type="button"
-            onClick={() => setInput("")}
+            onClick={() => updateInput("")}
             className="rounded-full border border-ink-700 bg-ink-900/60 hover:border-rose-500/40 hover:text-rose-300 px-3 py-1 transition ml-auto"
           >
             Clear
@@ -156,7 +166,7 @@ export default function JwtInspectorPage() {
       <textarea
         id="jwt-token"
         value={input}
-        onChange={(e) => setInput(e.target.value)}
+        onChange={(e) => updateInput(e.target.value)}
         placeholder="Paste a JWT (eyJ…)"
         spellCheck={false}
         autoComplete="off"

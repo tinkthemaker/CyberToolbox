@@ -4,7 +4,6 @@ on:
   push:
     branches: [main]
   pull_request:
-  workflow_dispatch:
 
 permissions:
   contents: read
@@ -19,12 +18,16 @@ jobs:
       - name: Set up Node
         uses: actions/setup-node@v4
         with:
+          # Keep CI within the range declared in package.json engines.
           node-version: 20.19
           check-latest: true
           cache: npm
 
       - name: Install
         run: npm ci
+
+      - name: Audit production dependencies
+        run: npm audit --omit=dev --audit-level=high
 
       - name: Typecheck
         run: npm run typecheck

@@ -9,7 +9,7 @@ function generateNonce(): string {
   return btoa(bin);
 }
 
-export function middleware(request: NextRequest) {
+export function proxy(request: NextRequest) {
   const nonce = generateNonce();
   const isDev = process.env.NODE_ENV !== "production";
   // 'strict-dynamic' lets Next's nonced bootstrap script load further chunks

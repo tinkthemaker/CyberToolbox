@@ -1,3 +1,4 @@
+import net from "node:net";
 import tls, { type DetailedPeerCertificate } from "node:tls";
 import { guardUrl, pinnedLookup } from "@/lib/security/ssrf";
 import type { PinnedAddress } from "@/lib/security/ssrf";
@@ -42,7 +43,7 @@ function strictConnect(host: string, addresses: PinnedAddress[], port: number): 
       {
         host,
         port,
-        servername: host,
+        servername: net.isIP(host) === 0 ? host : undefined,
         lookup: pinnedLookup(addresses),
         rejectUnauthorized: true,
         checkServerIdentity: () => undefined,
@@ -76,7 +77,7 @@ function lenientConnect(host: string, addresses: PinnedAddress[], port: number):
       {
         host,
         port,
-        servername: host,
+        servername: net.isIP(host) === 0 ? host : undefined,
         lookup: pinnedLookup(addresses),
         rejectUnauthorized: false,
         ALPNProtocols: ["h2", "http/1.1"],
@@ -462,10 +463,13 @@ export async function runTlsScan(
 
   const guard = await guardUrl(`https://${host}:${port}`);
   if (!guard.ok) return { ok: false, reason: guard.reason };
+  const tlsServername = guard.url.hostname.startsWith("[")
+    ? guard.url.hostname.slice(1, -1)
+    : guard.url.hostname;
 
   let connect: RawConnectResult;
   try {
-    connect = await tlsInspect(host, guard.addresses, port);
+    connect = await tlsInspect(tlsServername, guard.addresses, port);
   } catch (e) {
     const msg = e instanceof Error ? e.message : "TLS connection failed";
     return { ok: false, reason: `Could not connect: ${msg}` };

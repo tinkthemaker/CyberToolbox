@@ -1,10 +1,11 @@
 import type { Metadata } from "next";
 import Link from "next/link";
 import { headers } from "next/headers";
-import { SITE } from "@/lib/tools/registry";
+import { baseUrl, SITE } from "@/lib/tools/registry";
 import "./globals.css";
 
 export const metadata: Metadata = {
+  metadataBase: new URL(baseUrl()),
   title: {
     default: SITE.name,
     template: `%s · ${SITE.name}`,
@@ -43,6 +44,7 @@ export default async function RootLayout({ children }: { children: React.ReactNo
             </Link>
             <nav aria-label="Primary navigation" className="text-sm text-slate-400 flex items-center gap-5">
               <Link href="/" className="hover:text-slate-200 transition">Tools</Link>
+              <Link href="/methodology" className="hover:text-slate-200 transition">Methodology</Link>
               <Link href="/about" className="hover:text-slate-200 transition">About</Link>
             </nav>
           </div>

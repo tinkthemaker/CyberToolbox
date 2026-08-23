@@ -71,6 +71,17 @@ export const TOOLS: Tool[] = [
     owaspRefs: ["A02:2021 - Cryptographic Failures"],
     tags: ["tls", "certificates", "crypto"],
   },
+  {
+    id: "securitytxt-auditor",
+    name: "Security.txt Auditor",
+    tagline: "Check vulnerability disclosure readiness.",
+    description:
+      "Audits RFC 9116 security.txt files for the preferred well-known location, Contact and Expires fields, canonical mismatch, optional disclosure-program signals, and malformed lines.",
+    href: "/tools/securitytxt-auditor",
+    apiPath: "/api/tools/securitytxt-auditor",
+    status: "live",
+    tags: ["disclosure", "rfc9116", "governance"],
+  },
 ];
 
 export function getTool(id: string): Tool | undefined {

@@ -1,6 +1,7 @@
 import http from "node:http";
 import https from "node:https";
 import type { IncomingMessage } from "node:http";
+import net from "node:net";
 import { guardUrl, pinnedLookup } from "./ssrf";
 
 export type SafeFetchInit = {
@@ -23,24 +24,52 @@ const MAX_REDIRECTS = 3;
 const MAX_BODY_BYTES = 256 * 1024;
 const TIMEOUT_MS = 6000;
 
-async function readLimitedText(res: IncomingMessage, max = MAX_BODY_BYTES): Promise<string> {
-  const chunks: Buffer[] = [];
-  let received = 0;
-  for await (const chunk of res) {
-    if (received < max) {
-      const bytes = Buffer.isBuffer(chunk) ? chunk : Buffer.from(chunk);
-      const allowed = Math.min(bytes.length, max - received);
-      if (allowed > 0) {
-        chunks.push(bytes.subarray(0, allowed));
-        received += allowed;
+function readLimitedText(res: IncomingMessage, max = MAX_BODY_BYTES): Promise<string> {
+  return new Promise((resolve, reject) => {
+    const chunks: Buffer[] = [];
+    let received = 0;
+    let settled = false;
+
+    const finish = () => {
+      if (settled) return;
+      settled = true;
+      resolve(Buffer.concat(chunks, received).toString("utf8"));
+    };
+
+    res.on("data", (value: Buffer | Uint8Array | string) => {
+      if (settled) return;
+      const chunk = Buffer.isBuffer(value) ? value : Buffer.from(value);
+      const remaining = max - received;
+      if (chunk.byteLength > remaining) {
+        settled = true;
+        reject(new Error(`Response body exceeds the ${max} byte limit.`));
+        res.destroy();
+        return;
       }
-      if (received >= max) {
-        res.resume();
-        break;
-      }
-    }
-  }
-  return Buffer.concat(chunks).toString("utf8");
+      chunks.push(chunk);
+      received += chunk.byteLength;
+    });
+    res.on("end", finish);
+    res.on("aborted", () => {
+      if (!settled) reject(new Error("Response was aborted."));
+    });
+    res.on("error", (error) => {
+      if (!settled) reject(error);
+    });
+  });
+}
+
+function makeRequestHeaders(url: URL, init: SafeFetchInit): Record<string, string> {
+  const headers = new Headers(init.headers);
+  headers.delete("connection");
+  headers.delete("content-length");
+  headers.delete("host");
+  headers.delete("transfer-encoding");
+  if (!headers.has("user-agent")) headers.set("user-agent", USER_AGENT);
+  if (!headers.has("accept")) headers.set("accept", "*/*");
+  headers.set("accept-encoding", "identity");
+  headers.set("host", url.host);
+  return Object.fromEntries(headers.entries());
 }
 
 export async function safeFetch(
@@ -63,11 +92,10 @@ export async function safeFetch(
     }
 
     const timeoutMs = Math.min(TIMEOUT_MS, remaining);
-    const headers = {
-      "User-Agent": USER_AGENT,
-      Accept: "*/*",
-      ...(init.headers ?? {}),
-    };
+    const headers = makeRequestHeaders(guard.url, init);
+    const requestHostname = guard.url.hostname.startsWith("[")
+      ? guard.url.hostname.slice(1, -1)
+      : guard.url.hostname;
     const requestFn = guard.url.protocol === "https:" ? https.request : http.request;
     const response = await new Promise<
       | { ok: true; status: number; headers: Headers; body: string }
@@ -79,7 +107,9 @@ export async function safeFetch(
           method: init.method ?? "GET",
           headers,
           lookup: pinnedLookup(guard.addresses),
-          ...(guard.url.protocol === "https:" ? { servername: guard.url.hostname } : {}),
+          ...(guard.url.protocol === "https:" && net.isIP(requestHostname) === 0
+            ? { servername: requestHostname }
+            : {}),
         },
         (res) => {
           const responseHeaders = new Headers();
@@ -92,12 +122,19 @@ export async function safeFetch(
               responseHeaders.append(name, value.join(", "));
             }
           }
+          const status = res.statusCode ?? 0;
+          if (status >= 300 && status < 400 && responseHeaders.has("location")) {
+            clearTimeout(timer);
+            resolve({ ok: true, status, headers: responseHeaders, body: "" });
+            res.destroy();
+            return;
+          }
           const body = readLimitedText(res);
           body.then((text) => {
             clearTimeout(timer);
             resolve({
               ok: true,
-              status: res.statusCode ?? 0,
+              status,
               headers: responseHeaders,
               body: text,
             });
@@ -109,6 +146,7 @@ export async function safeFetch(
         },
       );
       const timer = setTimeout(() => req.destroy(new Error("Request timed out.")), timeoutMs);
+      timer.unref?.();
       req.on("error", (error) => {
         clearTimeout(timer);
         resolve({ ok: false, reason: `Network error: ${error.message}` });
