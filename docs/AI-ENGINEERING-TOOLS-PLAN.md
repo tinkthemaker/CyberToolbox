@@ -29,7 +29,7 @@ Derived from the existing four tools, not invented for this document:
 | **No third-party runtime deps** (Next/React/Tailwind only) | Every parser below is hand-rolled, the way `lib/tls/der.ts` is. Nothing needs an SDK. |
 | **No secrets, no third-party APIs** | Nothing here calls a model provider. "AI tools" means *tools that audit AI surfaces*, not tools that consume an LLM. |
 | **Every outbound URL goes through `guardUrl` / `safeFetch`** | Any new server route reuses `lib/security/ssrf.ts` unchanged. |
-| **`rateLimit()` at the top of every route** | Same three-line preamble as `app/api/tools/cors-tester/route.ts`. |
+| **`rateLimit()` at the top of every route** | Same three-line preamble as `app/api/tools/cors-tester/route.ts`. Note its scope before adding five more routes: the bucket is per-process in-memory, keyed by `clientKeyFromHeaders`, so it limits each serverless instance separately and resets on cold start. Fine for a portfolio deploy; if these tools see real traffic, swap `lib/security/rate-limit.ts` for a shared store (Vercel KV/Upstash) — one function, one call site. |
 | **Report shape is `Finding[]` / `FindingGroup[]`** | New tools render through the existing `FindingsList` + `SeverityBadge`, so UI cost stays near zero. |
 | **Pure logic lives in `lib/`, is unit-tested with vitest** | CI already runs `npm run test`; each tool below lands with tests for its analyzer. |
 | **Registry-driven** | Adding to `lib/tools/registry.ts` wires up the home grid, sitemap, and OG image for free. |
@@ -71,13 +71,20 @@ JWT Inspector: the config never leaves the tab.
 ### A3. AI Key & Credential Leak Linter — *client-only*
 
 **What:** Paste a config file, `.env`, or code snippet; it flags provider
-credentials by prefix pattern **plus** Shannon-entropy scoring, and shows
-masked matches only (`sk-ant-…4f2a`):
+credentials by prefix pattern, and shows masked matches only (`sk-ant-…4f2a`):
 
 `sk-ant-*` (Anthropic), `sk-*`/`sk-proj-*` (OpenAI), `AIza*` (Google),
 `hf_*` (Hugging Face), `r8_*` (Replicate), `gsk_*` (Groq), `xai-*`,
 `pplx-*`, plus generic `AWS_SECRET_ACCESS_KEY`, bearer tokens, and private-key
 PEM blocks.
+
+**Deterministic rules decide the verdict; entropy never does.** A `pass`/`fail`
+requires a prefix or format rule to match, and every finding names the rule that
+fired so the user can check it. Shannon entropy runs only as a secondary signal
+on values no rule matched, and those surface at `info` as *observations* —
+"high-entropy string, no known provider format" — never as a credential verdict.
+Keeping entropy out of the verdict is what holds this tool to the bar above;
+an earlier draft billed entropy as a co-equal detector, which contradicted it.
 
 Each finding gets a remediation line: rotate first, then purge history.
 
@@ -102,7 +109,13 @@ policy surface:
   `CCBot`, `PerplexityBot`, `Bytespider`, `Applebot-Extended`, and friends;
   flags "blocks nothing", "blocks everything", and self-contradicting groups.
 - `/llms.txt` and `/llms-full.txt` — presence, size, whether it points at
-  routes that 404.
+  routes that 404. **Only same-origin URLs are dereferenced, capped at 20 per
+  scan**: the advertised list is attacker-controlled content, so following
+  off-origin entries would turn the scanner into a request amplifier for
+  third-party hosts that never opted in. `guardUrl` blocks private and reserved
+  addresses but deliberately permits public ones, so the origin check is a
+  separate gate, applied before any `safeFetch`. Off-origin entries are still
+  *listed* in the report, just not fetched.
 - `/.well-known/ai.txt`, `/ai.txt` — TDM/AI usage declarations.
 - Response headers — `X-Robots-Tag: noai, noimageai`, `TDM-Reservation`.
 - Cross-checks: `llms.txt` advertising paths that `robots.txt` disallows.
@@ -149,19 +162,35 @@ in Track B.**
 
 Already named in the README's "planned" list. Enumerates common redirect params
 (`next`, `url`, `redirect`, `return_to`, `dest`, `continue`), sends a benign
-off-site value through `safeFetch` with redirects **not** followed, and grades
-the `Location` header: same-origin (pass), off-site (fail), protocol-relative
-`//evil` and `\/\/evil` bypasses, and open `javascript:` targets.
-**Effort:** M. OWASP: A01/A10.
+off-site value, and grades the **first** `Location` header: same-origin (pass),
+off-site (fail), protocol-relative `//evil` and `\/\/evil` bypasses, and open
+`javascript:` targets.
+
+**This needs a fetch primitive the repo does not have yet.** `safeFetch` follows
+3xx responses itself (`lib/security/safe-fetch.ts:120-122`, up to
+`MAX_REDIRECTS`) and returns only the terminal response's headers, and
+`SafeFetchInit` (`method`, `headers`, `deadlineMs`) has no opt-out. B2 therefore
+also ships a guarded single-hop mode — an added `SafeFetchInit` flag, or a small
+sibling primitive — that stops at the first response and exposes its raw
+`Location` without dereferencing it. Multi-hop stays the default for every
+existing caller. Count that in the estimate: **Effort:** M, and it is the reason
+B2 rather than B3 is the phase that touches the fetch layer. OWASP: A01/A10.
 
 ### B3. Cache & Compression Auditor — *server route*
 
 Grades `Cache-Control` on HTML vs static assets, `Vary` correctness (the
 `Vary: Origin` bug the CORS tester already hints at), `ETag`/`Last-Modified`,
-`Age`/CDN headers, compression negotiation, and the classic *private data
-cached publicly* pattern — which is a genuine confidentiality bug, not just a
-performance one, and is the finding that most justifies the tool's slot.
-Cheap: one or two requests, reuses everything. **Effort:** S.
+`Age`/CDN headers, and compression negotiation.
+
+**The *private data cached publicly* pattern caps at `warn`, not `fail`.**
+Proving cross-user response reuse needs two identities — an authenticated and an
+anonymous request, or two distinct sessions — and the toolbox takes no
+credentials for a target, so it cannot run that test. What it can state as fact
+is the precondition: a `Cache-Control: public` (or missing) response that also
+carries `Set-Cookie` or `Authorization`-varying content. Report that as a warning
+naming the missing evidence, and never as a confirmed confidentiality bug. This
+is the same bar that cut the prompt-injection linter: state the checkable fact,
+not the inference. Cheap: one or two requests, reuses everything. **Effort:** S.
 
 ### B4. Robots & Sitemap Auditor — *server route*
 
@@ -169,9 +198,16 @@ Also on the README list. Validates sitemap XML, URL count/size caps,
 `robots.txt` ↔ sitemap disagreement, and 404/redirect sampling of advertised
 URLs.
 
-**Dependency note:** this shares a `robots.txt` parser with A1. If A1 ships,
-B4 is nearly free (**S**); if A1 is dropped on scope grounds, B4 carries the
-parser itself and costs **M**. Sequence it after the A1 decision either way.
+Sampling of advertised URLs follows the same same-origin + 20-URL cap as A1,
+and for the same reason: sitemap contents are attacker-controlled.
+
+**Dependency note:** B4 and A1 share a `robots.txt` parser, and **B4 ships
+first** (Phase 4 vs Phase 5), so B4 introduces it — `lib/robots/parse.ts`,
+costed at **M** — and A1 imports it later rather than the other way round. An
+earlier draft had this backwards, claiming B4 was nearly free off a parser A1
+would not have written yet. The upside is unchanged, just relocated: if the A1
+scope decision comes back "no", the parser still lands with B4 and nothing is
+stranded.
 
 ---
 
@@ -209,7 +245,7 @@ Each phase is independently shippable, one PR per tool.
 | **2** | **B1 DNS & Email Hygiene** | Adds a new primitive (`node:dns`) with zero HTTP surface. |
 | **3** | **B2 Open Redirect** + C5 (probe harness) | First new consumer of the fetch layer; extract the shared harness here, while there are two consumers rather than four. |
 | **4** | **B3 Cache & Compression**, **B4 Robots & Sitemap** | Cheap fills once the harness exists. |
-| **5** | **A1 AI Crawler & Policy Auditor** | Gated on the scope decision below. If yes, it also retro-cheapens B4's parser. |
+| **5** | **A1 AI Crawler & Policy Auditor** | Gated on the scope decision below. Imports the `robots.txt` parser B4 landed in Phase 4, so if the answer is yes it is cheaper than its section implies. |
 
 ## Definition of done, per tool
 
@@ -218,7 +254,9 @@ Each phase is independently shippable, one PR per tool.
    as non-clickable and `sitemap.ts` filters to `live`, so this is safe).
 2. Analyzer in `lib/<area>/`, pure and dependency-free.
 3. Vitest suite covering pass/warn/fail for each rule.
-4. Route with the `rateLimit` + `safeFetch` preamble (server tools only).
+4. Route with the `rateLimit` preamble (every server tool) and `safeFetch` for
+   every user-supplied URL (HTTP-fetching tools only — B1 is `node:dns`-only and
+   makes no HTTP request, so it takes the rate limiter and nothing else).
 5. `vercel.json` `maxDuration` entry (server tools only).
 6. README table row + `docs/` note if the tool has a non-obvious threat model.
 7. `npm run typecheck && npm run test && npm run lint && npm run build` green.
