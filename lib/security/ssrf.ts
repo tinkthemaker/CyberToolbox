@@ -45,25 +45,78 @@ function inV4Cidr(ip: string, cidr: string): boolean {
   return (ipInt & mask) === (rangeInt & mask);
 }
 
+type V6Rule = { prefix: number[]; bits: number; embeddedV4?: boolean };
+
+const BLOCKED_V6_RULES: V6Rule[] = [
+  { prefix: [0, 0, 0, 0, 0, 0, 0, 0], bits: 128 }, // :: unspecified
+  { prefix: [0, 0, 0, 0, 0, 0, 0, 1], bits: 128 }, // ::1 loopback
+  { prefix: [0, 0, 0, 0, 0, 0, 0, 0], bits: 96, embeddedV4: true }, // ::a.b.c.d IPv4-compatible (deprecated)
+  { prefix: [0, 0, 0, 0, 0, 0xffff, 0, 0], bits: 96, embeddedV4: true }, // ::ffff:a.b.c.d IPv4-mapped
+  { prefix: [0x64, 0xff9b, 0, 0, 0, 0, 0, 0], bits: 96, embeddedV4: true }, // 64:ff9b::/96 NAT64 well-known
+  { prefix: [0x64, 0xff9b, 1, 0, 0, 0, 0, 0], bits: 48 }, // 64:ff9b:1::/48 NAT64 local-use
+  { prefix: [0x100, 0, 0, 0, 0, 0, 0, 0], bits: 64 }, // 100::/64 discard-only
+  { prefix: [0x2001, 0xdb8, 0, 0, 0, 0, 0, 0], bits: 32 }, // 2001:db8::/32 documentation
+  { prefix: [0xfc00, 0, 0, 0, 0, 0, 0, 0], bits: 7 }, // fc00::/7 unique-local
+  { prefix: [0xfe80, 0, 0, 0, 0, 0, 0, 0], bits: 10 }, // fe80::/10 link-local
+  { prefix: [0xff00, 0, 0, 0, 0, 0, 0, 0], bits: 8 }, // ff00::/8 multicast
+];
+
+function parseV6(addr: string): number[] | null {
+  let s = addr.toLowerCase();
+  let v4Words: number[] = [];
+  const v4Match = s.match(/^(.*:)((?:\d{1,3}\.){3}\d{1,3})$/);
+  if (v4Match) {
+    const v4 = ipv4ToInt(v4Match[2]);
+    if (v4 < 0) return null;
+    v4Words = [(v4 >>> 16) & 0xffff, v4 & 0xffff];
+    s = v4Match[1].endsWith("::") ? v4Match[1] : v4Match[1].slice(0, -1);
+  }
+  const halves = s.split("::");
+  if (halves.length > 2) return null;
+  const parseGroups = (part: string): number[] | null => {
+    if (part === "") return [];
+    const groups: number[] = [];
+    for (const g of part.split(":")) {
+      if (!/^[0-9a-f]{1,4}$/.test(g)) return null;
+      groups.push(Number.parseInt(g, 16));
+    }
+    return groups;
+  };
+  const head = parseGroups(halves[0]);
+  const tail = halves.length === 2 ? parseGroups(halves[1]) : null;
+  if (head === null || (halves.length === 2 && tail === null)) return null;
+  if (halves.length === 1) {
+    const words = [...head, ...v4Words];
+    return words.length === 8 ? words : null;
+  }
+  const end = [...(tail ?? []), ...v4Words];
+  const fill = 8 - head.length - end.length;
+  if (fill < 0) return null;
+  return [...head, ...new Array<number>(fill).fill(0), ...end];
+}
+
+function inV6Cidr(words: number[], prefix: number[], bits: number): boolean {
+  for (let i = 0; i < 8; i++) {
+    const groupBits = Math.min(16, bits - i * 16);
+    if (groupBits <= 0) return true;
+    const mask = groupBits >= 16 ? 0xffff : (0xffff << (16 - groupBits)) & 0xffff;
+    if ((words[i] & mask) !== (prefix[i] & mask)) return false;
+  }
+  return true;
+}
+
+function embeddedV4(words: number[]): string {
+  return `${words[6] >> 8}.${words[6] & 255}.${words[7] >> 8}.${words[7] & 255}`;
+}
+
 function isBlockedV6(addr: string): boolean {
-  const lower = addr.toLowerCase();
-  if (lower === "::" || lower === "::1") return true;
-  if (/^fe[89ab][0-9a-f]:/.test(lower)) return true;
-  if (/^f[cd][0-9a-f]{2}:/.test(lower)) return true;
-  if (/^2001:db8:/.test(lower)) return true;
-  if (lower.startsWith("::ffff:")) {
-    const v4 = lower.slice(7);
-    if (net.isIP(v4) === 4) return isBlockedV4(v4);
-    const mapped = v4.match(/^([0-9a-f]{1,4}):([0-9a-f]{1,4})$/);
-    if (mapped) {
-      const high = Number.parseInt(mapped[1], 16);
-      const low = Number.parseInt(mapped[2], 16);
-      return isBlockedV4(
-        `${high >> 8}.${high & 255}.${low >> 8}.${low & 255}`,
-      );
+  const words = parseV6(addr);
+  if (words === null) return true;
+  for (const rule of BLOCKED_V6_RULES) {
+    if (inV6Cidr(words, rule.prefix, rule.bits)) {
+      return rule.embeddedV4 ? isBlockedV4(embeddedV4(words)) : true;
     }
   }
-  if (/^ff[0-9a-f]{2}:/.test(lower)) return true;
   return false;
 }
 
