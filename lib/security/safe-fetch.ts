@@ -1,9 +1,14 @@
-import { request as httpRequest } from "node:http";
+import http from "node:http";
+import https from "node:https";
 import type { IncomingMessage } from "node:http";
-import { request as httpsRequest, type RequestOptions } from "node:https";
 import net from "node:net";
-import { guardUrl } from "./ssrf";
-import type { GuardResult } from "./ssrf";
+import { guardUrl, pinnedLookup } from "./ssrf";
+
+export type SafeFetchInit = {
+  method?: string;
+  headers?: Record<string, string>;
+  deadlineMs?: number;
+};
 
 export type SafeFetchResult = {
   finalUrl: string;
@@ -18,22 +23,6 @@ const USER_AGENT = "CyberToolbox/0.1 (+https://github.com/tinkthemaker/CyberTool
 const MAX_REDIRECTS = 3;
 const MAX_BODY_BYTES = 256 * 1024;
 const TIMEOUT_MS = 6000;
-
-type AllowedGuard = Extract<GuardResult, { ok: true }>;
-
-type PinnedResponse = {
-  status: number;
-  headers: Headers;
-  body: string;
-};
-
-function responseHeaders(res: IncomingMessage): Headers {
-  const headers = new Headers();
-  for (let i = 0; i < res.rawHeaders.length; i += 2) {
-    headers.append(res.rawHeaders[i], res.rawHeaders[i + 1]);
-  }
-  return headers;
-}
 
 function readLimitedText(res: IncomingMessage, max = MAX_BODY_BYTES): Promise<string> {
   return new Promise((resolve, reject) => {
@@ -71,7 +60,7 @@ function readLimitedText(res: IncomingMessage, max = MAX_BODY_BYTES): Promise<st
   });
 }
 
-function makeRequestHeaders(url: URL, init: RequestInit): Record<string, string> {
+function makeRequestHeaders(url: URL, init: SafeFetchInit): Record<string, string> {
   const headers = new Headers(init.headers);
   headers.delete("connection");
   headers.delete("content-length");
@@ -79,85 +68,96 @@ function makeRequestHeaders(url: URL, init: RequestInit): Record<string, string>
   headers.delete("transfer-encoding");
   if (!headers.has("user-agent")) headers.set("user-agent", USER_AGENT);
   if (!headers.has("accept")) headers.set("accept", "*/*");
-  // Avoid automatic decompression and cap the exact bytes received from the peer.
   headers.set("accept-encoding", "identity");
   headers.set("host", url.host);
   return Object.fromEntries(headers.entries());
 }
 
-function pinnedRequest(guard: AllowedGuard, init: RequestInit): Promise<PinnedResponse> {
-  return new Promise((resolve, reject) => {
-    if (init.body !== undefined && init.body !== null) {
-      reject(new Error("Request bodies are not supported by safeFetch."));
-      return;
-    }
-
-    const url = guard.url;
-    const originalHostname = url.hostname.startsWith("[")
-      ? url.hostname.slice(1, -1)
-      : url.hostname;
-    const options: RequestOptions = {
-      protocol: url.protocol,
-      hostname: guard.ip,
-      family: guard.family,
-      port: url.port || (url.protocol === "https:" ? 443 : 80),
-      method: init.method ?? "GET",
-      path: `${url.pathname}${url.search}`,
-      headers: makeRequestHeaders(url, init),
-      agent: false,
-    };
-    if (url.protocol === "https:" && net.isIP(originalHostname) === 0) {
-      options.servername = originalHostname;
-    }
-
-    const request = (url.protocol === "https:" ? httpsRequest : httpRequest)(options, (res) => {
-      const headers = responseHeaders(res);
-      const status = res.statusCode ?? 0;
-      if (status >= 300 && status < 400 && headers.has("location")) {
-        resolve({ status, headers, body: "" });
-        res.destroy();
-        return;
-      }
-      readLimitedText(res).then(
-        (body) => resolve({ status, headers, body }),
-        reject,
-      );
-    });
-
-    const timeout = setTimeout(() => {
-      request.destroy(new Error(`Request timed out after ${TIMEOUT_MS}ms.`));
-    }, TIMEOUT_MS);
-    timeout.unref?.();
-    request.on("close", () => clearTimeout(timeout));
-    request.on("error", reject);
-    request.end();
-  });
-}
-
 export async function safeFetch(
   inputUrl: string,
-  init: RequestInit = {},
+  init: SafeFetchInit = {},
 ): Promise<{ ok: true; data: SafeFetchResult } | { ok: false; reason: string }> {
   let current = inputUrl;
   const redirects: string[] = [];
   const start = Date.now();
 
   for (let i = 0; i <= MAX_REDIRECTS; i++) {
+    if (init.deadlineMs !== undefined && init.deadlineMs <= Date.now()) {
+      return { ok: false, reason: "Scan time budget exhausted." };
+    }
     const guard = await guardUrl(current);
     if (!guard.ok) return { ok: false, reason: guard.reason };
-
-    let res: PinnedResponse;
-    try {
-      // Connect to the exact address that passed validation. Re-resolving the
-      // hostname here would re-open the SSRF guard to DNS rebinding attacks.
-      res = await pinnedRequest(guard, init);
-    } catch (e: unknown) {
-      const msg = e instanceof Error ? e.message : "fetch failed";
-      return { ok: false, reason: `Network error: ${msg}` };
+    const remaining = init.deadlineMs === undefined ? TIMEOUT_MS : init.deadlineMs - Date.now();
+    if (remaining <= 0) {
+      return { ok: false, reason: "Scan time budget exhausted." };
     }
 
-    if (res.status >= 300 && res.status < 400 && res.headers.get("location")) {
-      const next = new URL(res.headers.get("location")!, guard.url).toString();
+    const timeoutMs = Math.min(TIMEOUT_MS, remaining);
+    const headers = makeRequestHeaders(guard.url, init);
+    const requestHostname = guard.url.hostname.startsWith("[")
+      ? guard.url.hostname.slice(1, -1)
+      : guard.url.hostname;
+    const requestFn = guard.url.protocol === "https:" ? https.request : http.request;
+    const response = await new Promise<
+      | { ok: true; status: number; headers: Headers; body: string }
+      | { ok: false; reason: string }
+    >((resolve) => {
+      const req = requestFn(
+        guard.url,
+        {
+          method: init.method ?? "GET",
+          headers,
+          lookup: pinnedLookup(guard.addresses),
+          ...(guard.url.protocol === "https:" && net.isIP(requestHostname) === 0
+            ? { servername: requestHostname }
+            : {}),
+        },
+        (res) => {
+          const responseHeaders = new Headers();
+          for (const [name, value] of Object.entries(res.headers)) {
+            if (name === "set-cookie" && Array.isArray(value)) {
+              for (const cookie of value) responseHeaders.append(name, cookie);
+            } else if (typeof value === "string") {
+              responseHeaders.append(name, value);
+            } else if (Array.isArray(value)) {
+              responseHeaders.append(name, value.join(", "));
+            }
+          }
+          const status = res.statusCode ?? 0;
+          if (status >= 300 && status < 400 && responseHeaders.has("location")) {
+            clearTimeout(timer);
+            resolve({ ok: true, status, headers: responseHeaders, body: "" });
+            res.destroy();
+            return;
+          }
+          const body = readLimitedText(res);
+          body.then((text) => {
+            clearTimeout(timer);
+            resolve({
+              ok: true,
+              status,
+              headers: responseHeaders,
+              body: text,
+            });
+          }).catch((error: unknown) => {
+            clearTimeout(timer);
+            const msg = error instanceof Error ? error.message : "response read failed";
+            resolve({ ok: false, reason: `Network error: ${msg}` });
+          });
+        },
+      );
+      const timer = setTimeout(() => req.destroy(new Error("Request timed out.")), timeoutMs);
+      timer.unref?.();
+      req.on("error", (error) => {
+        clearTimeout(timer);
+        resolve({ ok: false, reason: `Network error: ${error.message}` });
+      });
+      req.end();
+    });
+    if (!response.ok) return response;
+
+    if (response.status >= 300 && response.status < 400 && response.headers.get("location")) {
+      const next = new URL(response.headers.get("location")!, guard.url).toString();
       redirects.push(next);
       current = next;
       continue;
@@ -167,9 +167,9 @@ export async function safeFetch(
       ok: true,
       data: {
         finalUrl: guard.url.toString(),
-        status: res.status,
-        headers: res.headers,
-        body: res.body,
+        status: response.status,
+        headers: response.headers,
+        body: response.body,
         redirects,
         responseTimeMs: Date.now() - start,
       },

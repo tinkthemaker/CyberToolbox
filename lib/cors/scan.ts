@@ -11,7 +11,7 @@ type ProbeSpec = {
   method: ProbeMethod;
 };
 
-function buildProbes(targetHost: string, isHttps: boolean): ProbeSpec[] {
+export function buildProbes(targetHost: string, isHttps: boolean): ProbeSpec[] {
   const scheme = isHttps ? "https" : "http";
   const probes: ProbeSpec[] = [
     { id: "baseline", label: "Baseline (no Origin)", origin: null, method: "GET" },
@@ -24,13 +24,13 @@ function buildProbes(targetHost: string, isHttps: boolean): ProbeSpec[] {
     { id: "null-origin", label: "Origin: null", origin: "null", method: "GET" },
     {
       id: "suffix-bypass",
-      label: "Suffix bypass — attacker domain ends in target",
-      origin: `https://attacker${targetHost.replace(/\./g, "")}.example`,
+      label: "Suffix bypass (origin ends with target host)",
+      origin: `https://not${targetHost}`,
       method: "GET",
     },
     {
       id: "prefix-bypass",
-      label: "Prefix bypass — target as a subdomain of attacker",
+      label: "Prefix bypass (origin starts with target host)",
       origin: `https://${targetHost}.${ATTACKER_HOST}`,
       method: "GET",
     },
@@ -58,7 +58,7 @@ function buildProbes(targetHost: string, isHttps: boolean): ProbeSpec[] {
   return probes;
 }
 
-async function runProbe(url: string, spec: ProbeSpec): Promise<ProbeResult> {
+async function runProbe(url: string, spec: ProbeSpec, deadlineMs?: number): Promise<ProbeResult> {
   const headers: Record<string, string> = {};
   if (spec.origin !== null) headers["Origin"] = spec.origin;
   if (spec.method === "OPTIONS") {
@@ -66,7 +66,11 @@ async function runProbe(url: string, spec: ProbeSpec): Promise<ProbeResult> {
     headers["Access-Control-Request-Headers"] = "authorization,content-type";
   }
 
-  const res = await safeFetch(url, { method: spec.method, headers });
+  const res = await safeFetch(url, {
+    method: spec.method,
+    headers,
+    ...(deadlineMs === undefined ? {} : { deadlineMs }),
+  });
   if (!res.ok) {
     return {
       id: spec.id,
@@ -101,7 +105,7 @@ function isCredentialed(p: ProbeResult): boolean {
   return p.acac?.toLowerCase() === "true";
 }
 
-function analyze(probes: ProbeResult[]): FindingGroup[] {
+export function analyze(probes: ProbeResult[]): FindingGroup[] {
   const findings: Finding[] = [];
   const byId = new Map(probes.map((p) => [p.id, p]));
 
@@ -197,7 +201,7 @@ function analyze(probes: ProbeResult[]): FindingGroup[] {
 
   // Vary: Origin hygiene
   for (const p of probes) {
-    if (p.acao && p.acao !== "*" && p.id === "arbitrary-origin") {
+    if (p.acao && p.acao !== "*" && p.reflectsOrigin) {
       const varyHasOrigin = !!p.vary?.split(",").some((v) => v.trim().toLowerCase() === "origin");
       if (!varyHasOrigin) {
         findings.push({
@@ -209,7 +213,6 @@ function analyze(probes: ProbeResult[]): FindingGroup[] {
           value: `Vary=${p.vary ?? "(none)"}`,
           recommendation: "Add 'Vary: Origin' whenever ACAO is computed from the request.",
         });
-        break;
       }
     }
   }
@@ -273,14 +276,15 @@ function summarise(groups: FindingGroup[]): CorsReport["summary"] {
 export async function runCorsScan(
   input: string,
 ): Promise<{ ok: true; report: CorsReport } | { ok: false; reason: string }> {
-  const initial = await safeFetch(input, { method: "GET" });
+  const deadlineMs = Date.now() + 18_000;
+  const initial = await safeFetch(input, { method: "GET", deadlineMs });
   if (!initial.ok) return { ok: false, reason: initial.reason };
   const finalUrl = initial.data.finalUrl;
   const targetUrl = new URL(finalUrl);
   const isHttps = targetUrl.protocol === "https:";
 
   const specs = buildProbes(targetUrl.hostname, isHttps);
-  const probes = await Promise.all(specs.map((s) => runProbe(finalUrl, s)));
+  const probes = await Promise.all(specs.map((s) => runProbe(finalUrl, s, deadlineMs)));
   const groups = analyze(probes);
 
   return {

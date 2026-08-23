@@ -1,6 +1,6 @@
 "use client";
 
-import { useState } from "react";
+import { useEffect, useRef, useState } from "react";
 import { CertReportView } from "@/components/CertReportView";
 import type { CertReport } from "@/lib/tls/types";
 
@@ -11,8 +11,11 @@ export default function CertViewerPage() {
   const [report, setReport] = useState<CertReport | null>(null);
   const [error, setError] = useState<string | null>(null);
   const [loading, setLoading] = useState(false);
+  const resultsHeadingRef = useRef<HTMLHeadingElement>(null);
+  const hadResult = useRef(false);
 
   async function scan(target: string) {
+    if (loading) return;
     setLoading(true);
     setError(null);
     setReport(null);
@@ -37,8 +40,15 @@ export default function CertViewerPage() {
 
   function onSubmit(e: React.FormEvent) {
     e.preventDefault();
+    if (loading) return;
     if (host.trim()) scan(host.trim());
   }
+
+  useEffect(() => {
+    const hasResult = report !== null || error !== null;
+    if (hasResult && !hadResult.current) resultsHeadingRef.current?.focus();
+    hadResult.current = hasResult;
+  }, [report, error]);
 
   return (
     <div className="space-y-8">
@@ -58,7 +68,11 @@ export default function CertViewerPage() {
         onSubmit={onSubmit}
         className="flex flex-col sm:flex-row gap-2 rounded-2xl border border-ink-700 bg-ink-900/60 p-2"
       >
+        <label htmlFor="cert-host" className="sr-only">
+          Hostname and port to inspect
+        </label>
         <input
+          id="cert-host"
           type="text"
           value={host}
           onChange={(e) => setHost(e.target.value)}
@@ -67,6 +81,8 @@ export default function CertViewerPage() {
           autoFocus
           spellCheck={false}
           autoComplete="off"
+          aria-describedby={error ? "cert-error" : undefined}
+          aria-invalid={error ? true : undefined}
           className="flex-1 bg-transparent px-4 py-3 font-mono text-sm text-slate-100 placeholder-slate-500 focus:outline-none"
         />
         <button
@@ -79,11 +95,12 @@ export default function CertViewerPage() {
       </form>
 
       <div className="flex flex-wrap items-center gap-2 text-xs">
-        <span className="text-slate-500 mr-2">Try:</span>
+        <span className="text-slate-400 mr-2">Try:</span>
         {SAMPLES.map((s) => (
           <button
             key={s}
             type="button"
+            disabled={loading}
             onClick={() => {
               setHost(s);
               scan(s);
@@ -95,20 +112,29 @@ export default function CertViewerPage() {
         ))}
       </div>
 
-      {error && (
-        <div className="rounded-xl border border-rose-500/40 bg-rose-500/10 px-4 py-3 text-sm text-rose-200">
-          {error}
-        </div>
-      )}
+      <div role="status" aria-live="polite" aria-busy={loading}>
+        <h2 ref={resultsHeadingRef} tabIndex={-1} className="sr-only">
+          Certificate inspection results
+        </h2>
+        {error && (
+          <div
+            id="cert-error"
+            role="alert"
+            className="rounded-xl border border-rose-500/40 bg-rose-500/10 px-4 py-3 text-sm text-rose-200"
+          >
+            {error}
+          </div>
+        )}
 
-      {loading && (
-        <div className="rounded-2xl border border-ink-700 bg-ink-900/40 p-10 text-center text-slate-400">
-          <div className="inline-block h-6 w-6 rounded-full border-2 border-accent-500/30 border-t-accent-500 animate-spin mb-3" />
-          <p className="text-sm">Performing TLS handshake…</p>
-        </div>
-      )}
+        {loading && (
+          <div className="rounded-2xl border border-ink-700 bg-ink-900/40 p-10 text-center text-slate-400">
+            <div className="inline-block h-6 w-6 rounded-full border-2 border-accent-500/30 border-t-accent-500 animate-spin mb-3" />
+            <p className="text-sm">Performing TLS handshake…</p>
+          </div>
+        )}
 
-      {report && <CertReportView report={report} />}
+        {report && <CertReportView report={report} />}
+      </div>
     </div>
   );
 }

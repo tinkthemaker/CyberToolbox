@@ -7,7 +7,7 @@ export const metadata: Metadata = {
 
 export default function AboutPage() {
   return (
-    <article className="prose prose-invert max-w-3xl">
+    <article className="max-w-3xl">
       <h1 className="text-3xl font-bold tracking-tight">About</h1>
       <p className="text-slate-400 mt-4 leading-relaxed">
         Cyber Toolbox is a small, growing collection of single-purpose web-security utilities. The

@@ -28,11 +28,11 @@ This is a portfolio project. The `main` branch is the supported version.
 
 The app includes several guardrails:
 
-- Server-side URL scans pass through an SSRF guard and connect to the exact validated public IP.
+- Server-side URL scans pass through an SSRF guard and connect only to validated public addresses.
 - Redirects are followed manually and re-checked at each hop.
 - Private, loopback, link-local, multicast, reserved, cloud metadata, `.local`, and `localhost` targets are blocked.
 - API routes cap JSON request bodies and use a bounded per-IP in-memory rate limiter.
 - The app sets static security headers through `vercel.json`.
-- A per-request CSP nonce is generated in middleware for inline Next.js scripts.
+- A per-request CSP nonce is generated in the application proxy for inline Next.js scripts.
 
 These controls reduce abuse risk, but they do not make unauthorized scanning acceptable.

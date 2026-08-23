@@ -8,7 +8,6 @@ export function ToolCard({ tool }: { tool: Tool }) {
       ? "border-ink-700 bg-ink-900/60 hover:border-accent-500/60 hover:bg-ink-800/80"
       : "border-ink-700/60 bg-ink-900/30 opacity-60 cursor-not-allowed"
   }`;
-
   const content = (
     <>
       <div className="flex items-start justify-between gap-3">
@@ -45,7 +44,9 @@ export function ToolCard({ tool }: { tool: Tool }) {
   );
 
   return isLive ? (
-    <Link href={tool.href} className={className}>{content}</Link>
+    <Link href={tool.href} className={className}>
+      {content}
+    </Link>
   ) : (
     <div className={className}>{content}</div>
   );

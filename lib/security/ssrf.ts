@@ -1,5 +1,6 @@
 import dns from "node:dns/promises";
 import net from "node:net";
+import type { LookupFunction } from "node:net";
 
 const BLOCKED_V4_CIDRS = [
   "0.0.0.0/8",
@@ -36,15 +37,18 @@ const BLOCKED_V6_CIDRS = [
   "ff00::/8", // multicast
 ];
 
-const blockedAddresses = new net.BlockList();
+const blockedV4Addresses = new net.BlockList();
 for (const cidr of BLOCKED_V4_CIDRS) {
   const [network, prefix] = cidr.split("/");
-  blockedAddresses.addSubnet(network, Number(prefix), "ipv4");
+  blockedV4Addresses.addSubnet(network, Number(prefix), "ipv4");
 }
+const blockedV6Addresses = new net.BlockList();
 for (const cidr of BLOCKED_V6_CIDRS) {
   const [network, prefix] = cidr.split("/");
-  blockedAddresses.addSubnet(network, Number(prefix), "ipv6");
+  blockedV6Addresses.addSubnet(network, Number(prefix), "ipv6");
 }
+
+export type PinnedAddress = { address: string; family: 4 | 6 };
 
 function unbracketHostname(hostname: string): string {
   return hostname.startsWith("[") && hostname.endsWith("]")
@@ -53,12 +57,43 @@ function unbracketHostname(hostname: string): string {
 }
 
 function isBlockedAddress(address: string, family: 4 | 6): boolean {
-  return blockedAddresses.check(address, family === 4 ? "ipv4" : "ipv6");
+  return family === 4
+    ? blockedV4Addresses.check(address, "ipv4")
+    : blockedV6Addresses.check(address, "ipv6");
 }
 
 export type GuardResult =
-  | { ok: true; url: URL; ip: string; family: 4 | 6 }
+  | {
+      ok: true;
+      url: URL;
+      ip: string;
+      family: 4 | 6;
+      addresses: PinnedAddress[];
+    }
   | { ok: false; reason: string };
+
+export function pinnedLookup(
+  addresses: PinnedAddress[],
+): LookupFunction {
+  return (_hostname, options, callback) => {
+    const family =
+      options.family === "IPv4" ? 4 : options.family === "IPv6" ? 6 : options.family;
+    const selected = family
+      ? addresses.filter((address) => address.family === family)
+      : addresses;
+    if (selected.length === 0) {
+      callback(
+        Object.assign(new Error("No validated address for requested family."), { code: "ENOTFOUND" }),
+        "",
+        0,
+      );
+    } else if (options.all) {
+      callback(null, selected);
+    } else {
+      callback(null, selected[0].address, selected[0].family);
+    }
+  };
+}
 
 export async function guardUrl(input: string): Promise<GuardResult> {
   let url: URL;
@@ -84,7 +119,8 @@ export async function guardUrl(input: string): Promise<GuardResult> {
     return { ok: false, reason: `Refusing to scan private/reserved address ${hostname}.` };
   }
   if (literal !== 0) {
-    return { ok: true, url, ip: hostname, family: literal as 4 | 6 };
+    const family = literal as 4 | 6;
+    return { ok: true, url, ip: hostname, family, addresses: [{ address: hostname, family }] };
   }
 
   const lowered = hostname.toLowerCase();
@@ -104,11 +140,12 @@ export async function guardUrl(input: string): Promise<GuardResult> {
     if ((a.family === 4 || a.family === 6) && isBlockedAddress(a.address, a.family)) {
       return { ok: false, reason: `${hostname} resolves to private/reserved ${a.address}.` };
     }
+    if (a.family !== 4 && a.family !== 6) {
+      return { ok: false, reason: `Unsupported address family for ${hostname}.` };
+    }
   }
 
   const first = addrs[0];
-  if (first.family !== 4 && first.family !== 6) {
-    return { ok: false, reason: `Unsupported address family for ${hostname}.` };
-  }
-  return { ok: true, url, ip: first.address, family: first.family as 4 | 6 };
+  const addresses = addrs.map((a) => ({ address: a.address, family: a.family as 4 | 6 }));
+  return { ok: true, url, ip: first.address, family: first.family as 4 | 6, addresses };
 }

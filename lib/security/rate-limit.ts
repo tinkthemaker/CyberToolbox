@@ -41,14 +41,24 @@ function firstValidIp(value: string | null): string | null {
   return null;
 }
 
+function lastValidIp(value: string | null): string | null {
+  if (!value) return null;
+  const candidates = value.split(",");
+  for (let i = candidates.length - 1; i >= 0; i--) {
+    const address = candidates[i].trim();
+    if (net.isIP(address) !== 0) return address;
+  }
+  return null;
+}
+
 export function clientKeyFromHeaders(headers: Headers): string {
   // Vercel preserves its own copy even when an upstream proxy rewrites XFF.
   // Fall back for local/self-hosted deployments, but never accept arbitrary
   // strings as map keys.
   return (
     firstValidIp(headers.get("x-vercel-forwarded-for")) ??
-    firstValidIp(headers.get("x-forwarded-for")) ??
     firstValidIp(headers.get("x-real-ip")) ??
+    lastValidIp(headers.get("x-forwarded-for")) ??
     "unknown"
   );
 }

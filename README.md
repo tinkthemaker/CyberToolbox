@@ -1,6 +1,9 @@
 # Cyber Toolbox
 
 [![CI](https://github.com/tinkthemaker/CyberToolbox/actions/workflows/ci.yml/badge.svg)](https://github.com/tinkthemaker/CyberToolbox/actions/workflows/ci.yml)
+[![Next.js](https://img.shields.io/badge/Next.js-15-black?logo=next.js)](https://nextjs.org)
+[![TypeScript](https://img.shields.io/badge/TypeScript-5.0+-3178C6?logo=typescript)](https://typescriptlang.org)
+[![Tailwind](https://img.shields.io/badge/Tailwind-3.4+-06B6D4?logo=tailwindcss)](https://tailwindcss.com)
 [![License: MIT](https://img.shields.io/badge/license-MIT-blue.svg)](LICENSE)
 
 A growing collection of small, focused **web-security tools** — paste a URL,
@@ -160,7 +163,7 @@ lib/
 proxy.ts                             # Per-request CSP nonce
 public/jwt-wordlist.json             # Common dev/test secrets (~100 entries)
 vercel.json                          # Function maxDuration + static headers
-.github/workflows/ci.yml             # typecheck + lint + build on push/PR
+.github/workflows/ci.yml             # audit + typecheck + test + lint + build
 ```
 
 ---
@@ -187,7 +190,7 @@ network call:
    they resolve to a public IP.
 
 `safeFetch` follows redirects manually, re-applying the guard at every hop.
-Each connection is pinned to the exact public IP that passed validation,
+Each connection is restricted to the validated public address set,
 closing the DNS-rebinding gap between lookup and connect. Responses are capped
 at 256 KB and each request times out after 6 seconds.
 
@@ -265,7 +268,7 @@ npm run dev         # Next dev server with HMR
 npm run build       # Production build
 npm run start       # Production server (after build)
 npm run typecheck   # tsc --noEmit
-npm run lint        # next lint
+npm run lint        # ESLint
 npm run test        # Vitest unit tests
 ```
 

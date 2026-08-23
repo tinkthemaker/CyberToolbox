@@ -40,7 +40,8 @@ export async function runScan(input: string): Promise<
   | { ok: true; report: ScanReport }
   | { ok: false; reason: string }
 > {
-  const initial = await safeFetch(input, { method: "GET" });
+  const deadlineMs = Date.now() + 13_000;
+  const initial = await safeFetch(input, { method: "GET", deadlineMs });
   if (!initial.ok) return { ok: false, reason: initial.reason };
 
   const { finalUrl, status, headers, redirects, responseTimeMs } = initial.data;
@@ -65,7 +66,7 @@ export async function runScan(input: string): Promise<
     {
       id: "exposures",
       title: "File Exposure Probes",
-      findings: await runProbes(finalUrl),
+      findings: await runProbes(finalUrl, deadlineMs),
     },
   ];
 

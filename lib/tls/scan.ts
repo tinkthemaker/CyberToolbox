@@ -1,6 +1,7 @@
 import net from "node:net";
 import tls, { type DetailedPeerCertificate } from "node:tls";
-import { guardUrl } from "@/lib/security/ssrf";
+import { guardUrl, pinnedLookup } from "@/lib/security/ssrf";
+import type { PinnedAddress } from "@/lib/security/ssrf";
 import type { Finding, FindingGroup } from "@/lib/shared/findings";
 import type { CertReport, CertSubject, ParsedCert } from "./types";
 import { extractSignatureAlgorithm } from "./der";
@@ -35,14 +36,15 @@ function walkChain(root: DetailedPeerCertificate): DetailedPeerCertificate[] {
 
 type StrictResult = { authorized: true } | { authorized: false; error: string };
 
-function strictConnect(connectIp: string, servername: string, port: number): Promise<StrictResult> {
+function strictConnect(host: string, addresses: PinnedAddress[], port: number): Promise<StrictResult> {
   return new Promise((resolve) => {
     let settled = false;
     const socket = tls.connect(
       {
-        host: connectIp,
+        host,
         port,
-        servername: net.isIP(servername) === 0 ? servername : undefined,
+        servername: net.isIP(host) === 0 ? host : undefined,
+        lookup: pinnedLookup(addresses),
         rejectUnauthorized: true,
         checkServerIdentity: () => undefined,
       },
@@ -67,15 +69,16 @@ function strictConnect(connectIp: string, servername: string, port: number): Pro
   });
 }
 
-function lenientConnect(connectIp: string, servername: string, port: number): Promise<RawConnectResult> {
+function lenientConnect(host: string, addresses: PinnedAddress[], port: number): Promise<RawConnectResult> {
   return new Promise((resolve, reject) => {
     const start = Date.now();
     let settled = false;
     const socket = tls.connect(
       {
-        host: connectIp,
+        host,
         port,
-        servername: net.isIP(servername) === 0 ? servername : undefined,
+        servername: net.isIP(host) === 0 ? host : undefined,
+        lookup: pinnedLookup(addresses),
         rejectUnauthorized: false,
         ALPNProtocols: ["h2", "http/1.1"],
       },
@@ -85,7 +88,7 @@ function lenientConnect(connectIp: string, servername: string, port: number): Pr
         const rawCert = socket.getPeerCertificate(true);
         const protocol = socket.getProtocol();
         const cipher = socket.getCipher();
-        const hostnameError = tls.checkServerIdentity(servername, rawCert) as Error | undefined;
+        const hostnameError = tls.checkServerIdentity(host, rawCert) as Error | undefined;
         const chain = walkChain(rawCert);
         socket.end();
         resolve({
@@ -112,10 +115,10 @@ function lenientConnect(connectIp: string, servername: string, port: number): Pr
   });
 }
 
-async function tlsInspect(connectIp: string, servername: string, port: number): Promise<RawConnectResult> {
+async function tlsInspect(host: string, addresses: PinnedAddress[], port: number): Promise<RawConnectResult> {
   const [strict, lenient] = await Promise.all([
-    strictConnect(connectIp, servername, port),
-    lenientConnect(connectIp, servername, port),
+    strictConnect(host, addresses, port),
+    lenientConnect(host, addresses, port),
   ]);
   return {
     ...lenient,
@@ -334,13 +337,6 @@ function analyse(
         severity: "pass",
         detail: "ECDSA keys provide strong security with smaller sizes.",
       });
-    } else if (leaf.keyType === "ed25519" || leaf.keyType === "ed448") {
-      findings.push({
-        id: "edwards-key",
-        name: `Key: ${leaf.keyType.toUpperCase()}`,
-        severity: "pass",
-        detail: "Modern Edwards-curve key.",
-      });
     }
 
     // Self-signed
@@ -473,9 +469,7 @@ export async function runTlsScan(
 
   let connect: RawConnectResult;
   try {
-    // Pin both TLS handshakes to the address that passed the SSRF guard.
-    // SNI and hostname verification still use the user-facing hostname.
-    connect = await tlsInspect(guard.ip, tlsServername, port);
+    connect = await tlsInspect(tlsServername, guard.addresses, port);
   } catch (e) {
     const msg = e instanceof Error ? e.message : "TLS connection failed";
     return { ok: false, reason: `Could not connect: ${msg}` };
