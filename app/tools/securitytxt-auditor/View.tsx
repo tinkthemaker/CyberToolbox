@@ -15,7 +15,7 @@ const DEMO_REPORT: SecurityTxtReport = {
   summary: { score: 90, pass: 7, warn: 1, fail: 0, info: 1 },
   fields: {
     Contact: ["mailto:security@example.com"],
-    Expires: ["2026-06-01T00:00:00Z"],
+    Expires: ["2030-06-01T00:00:00Z"],
     Canonical: ["https://example.com/.well-known/security.txt"],
     Policy: ["https://example.com/security-policy"],
     Encryption: ["https://example.com/pgp-key.txt"],
@@ -40,7 +40,7 @@ const DEMO_REPORT: SecurityTxtReport = {
           name: "Expires field is current",
           severity: "pass",
           detail: "The policy has a future expiry date, which signals that the disclosure instructions are maintained.",
-          value: "2026-06-01T00:00:00Z",
+          value: "2030-06-01T00:00:00Z",
         },
         {
           id: "demo-hiring",

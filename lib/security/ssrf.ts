@@ -23,6 +23,7 @@ const BLOCKED_V4_CIDRS = [
 const BLOCKED_V6_CIDRS = [
   "::/128", // unspecified
   "::1/128", // loopback
+  "::/96", // IPv4-compatible
   "::ffff:0.0.0.0/96", // IPv4-mapped (including hex-encoded private IPv4)
   "::ffff:0:0:0/96", // IPv4-translatable
   "64:ff9b::/96", // well-known NAT64 translation prefix

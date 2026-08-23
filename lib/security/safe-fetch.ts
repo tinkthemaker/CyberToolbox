@@ -40,15 +40,14 @@ function readLimitedText(res: IncomingMessage, max = MAX_BODY_BYTES): Promise<st
       if (settled) return;
       const chunk = Buffer.isBuffer(value) ? value : Buffer.from(value);
       const remaining = max - received;
-      if (remaining > 0) {
-        const accepted = chunk.subarray(0, remaining);
-        chunks.push(accepted);
-        received += accepted.byteLength;
-      }
-      if (received >= max) {
-        finish();
+      if (chunk.byteLength > remaining) {
+        settled = true;
+        reject(new Error(`Response body exceeds the ${max} byte limit.`));
         res.destroy();
+        return;
       }
+      chunks.push(chunk);
+      received += chunk.byteLength;
     });
     res.on("end", finish);
     res.on("aborted", () => {

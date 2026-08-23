@@ -35,6 +35,7 @@ type ParsedSecurityTxt = {
 
 const FIELD_RE = /^([A-Za-z][A-Za-z0-9_-]*):\s*(.*)$/;
 const WELL_KNOWN_PATH = "/.well-known/security.txt";
+const RFC3339_DATE_TIME_RE = /^(\d{4})-(\d{2})-(\d{2})T(\d{2}):(\d{2}):(\d{2})(?:\.\d+)?(?:Z|[+-]\d{2}:\d{2})$/;
 
 function addField(fields: Record<string, string[]>, name: string, value: string) {
   const canonical = name
@@ -48,7 +49,8 @@ export function parseSecurityTxt(body: string): ParsedSecurityTxt {
   const fields: Record<string, string[]> = {};
   const malformedLines: number[] = [];
 
-  body.split(/\r?\n/).forEach((rawLine, index) => {
+  const lines = clearSignedText(body);
+  lines.forEach((rawLine, index) => {
     const line = rawLine.trim();
     if (!line || line.startsWith("#")) return;
 
@@ -62,6 +64,21 @@ export function parseSecurityTxt(body: string): ParsedSecurityTxt {
   });
 
   return { fields, malformedLines };
+}
+
+function clearSignedText(body: string): string[] {
+  const lines = body.split(/\r?\n/);
+  if (lines[0] !== "-----BEGIN PGP SIGNED MESSAGE-----") return lines;
+
+  const cleartextStart = lines.findIndex((line, index) => index > 0 && line === "") + 1;
+  const signatureStart = lines.findIndex(
+    (line, index) => index >= cleartextStart && line === "-----BEGIN PGP SIGNATURE-----",
+  );
+  if (cleartextStart === 0 || signatureStart === -1) return lines;
+
+  return lines.slice(cleartextStart, signatureStart).map((line) =>
+    line.startsWith("- ") ? line.slice(2) : line,
+  );
 }
 
 function finding(input: Finding): Finding {
@@ -79,8 +96,32 @@ function countSummary(groups: FindingGroup[]): SecurityTxtSummary {
 }
 
 function parseDate(value: string): Date | null {
+  const match = RFC3339_DATE_TIME_RE.exec(value);
+  if (!match) return null;
+  const [, yearText, monthText, dayText, hourText, minuteText, secondText] = match;
+  const year = Number(yearText);
+  const month = Number(monthText);
+  const day = Number(dayText);
+  const hour = Number(hourText);
+  const minute = Number(minuteText);
+  const second = Number(secondText);
+  if (
+    month < 1 || month > 12 || day < 1 || day > new Date(Date.UTC(year, month, 0)).getUTCDate() ||
+    hour > 23 || minute > 59 || second > 59
+  ) return null;
   const date = new Date(value);
   return Number.isNaN(date.getTime()) ? null : date;
+}
+
+function isContactUri(value: string): boolean {
+  try {
+    const uri = new URL(value);
+    if (!uri.protocol) return false;
+    if (uri.protocol === "mailto:") return /^[^@\s]+@[^@\s]+$/.test(uri.pathname);
+    return uri.href.length > uri.protocol.length;
+  } catch {
+    return false;
+  }
 }
 
 function locationKind(fetchedUrl: string): SecurityTxtReport["target"]["location"] {
@@ -107,7 +148,7 @@ function analyzeRequiredFields(fields: Record<string, string[]>, now: Date): Fin
         recommendation: "Add a monitored mailto: address or HTTPS contact URL, for example: Contact: mailto:security@example.com.",
       }),
     );
-  } else {
+  } else if (contacts.every(isContactUri)) {
     findings.push(
       finding({
         id: "contact-present",
@@ -118,20 +159,43 @@ function analyzeRequiredFields(fields: Record<string, string[]>, now: Date): Fin
         recommendation: "Keep this contact monitored and make sure reports receive a timely response.",
       }),
     );
+  } else {
+    findings.push(
+      finding({
+        id: "contact-invalid",
+        name: "Contact field contains an invalid URI",
+        severity: "fail",
+        detail: "Every Contact value must be a URI. Email addresses require the mailto: scheme.",
+        value: contacts.join("\n"),
+        recommendation: "Use a URI such as mailto:security@example.com or https://example.com/security/contact.",
+      }),
+    );
   }
 
-  const expires = fields.Expires?.[0];
-  if (!expires) {
+  const expiresValues = fields.Expires ?? [];
+  if (expiresValues.length === 0) {
     findings.push(
       finding({
         id: "expires-missing",
         name: "Missing Expires field",
-        severity: "warn",
+        severity: "fail",
         detail: "RFC 9116 requires an Expires field so researchers can tell whether the policy is current.",
         recommendation: "Add an ISO 8601 timestamp and refresh it before the date passes.",
       }),
     );
+  } else if (expiresValues.length > 1) {
+    findings.push(
+      finding({
+        id: "expires-duplicate",
+        name: "Multiple Expires fields",
+        severity: "fail",
+        detail: "RFC 9116 requires exactly one Expires field.",
+        value: expiresValues.join("\n"),
+        recommendation: "Keep one RFC 3339 Expires timestamp and remove duplicate fields.",
+      }),
+    );
   } else {
+    const expires = expiresValues[0];
     const expiryDate = parseDate(expires);
     if (!expiryDate) {
       findings.push(

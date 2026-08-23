@@ -6,6 +6,7 @@ describe("guardUrl", () => {
     "http://127.0.0.1",
     "http://169.254.169.254/latest/meta-data",
     "http://[::1]",
+    "http://[::7f00:1]",
     "http://[::ffff:7f00:1]",
     "http://[::ffff:0:7f00:1]",
     "http://[64:ff9b::7f00:1]",

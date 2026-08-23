@@ -52,6 +52,62 @@ describe("analyzeSecurityTxt", () => {
     expect(severities(report)).toContainEqual(["expires-expired", "fail"]);
   });
 
+  it("rejects non-URI contacts and invalid, missing, or duplicate Expires values", () => {
+    const invalidContact = analyzeSecurityTxt({
+      body: "Contact: security@example.com\nExpires: 2026-06-01T00:00:00Z",
+      fetchedUrl: LOCATION,
+      now: NOW,
+    });
+    expect(severities(invalidContact)).toContainEqual(["contact-invalid", "fail"]);
+
+    const missingExpiry = analyzeSecurityTxt({
+      body: "Contact: mailto:security@example.com",
+      fetchedUrl: LOCATION,
+      now: NOW,
+    });
+    expect(severities(missingExpiry)).toContainEqual(["expires-missing", "fail"]);
+
+    const duplicateExpiry = analyzeSecurityTxt({
+      body: "Contact: mailto:security@example.com\nExpires: 2026-06-01T00:00:00Z\nExpires: 2027-06-01T00:00:00Z",
+      fetchedUrl: LOCATION,
+      now: NOW,
+    });
+    expect(severities(duplicateExpiry)).toContainEqual(["expires-duplicate", "fail"]);
+
+    const malformedExpiry = analyzeSecurityTxt({
+      body: "Contact: mailto:security@example.com\nExpires: June 1, 2026",
+      fetchedUrl: LOCATION,
+      now: NOW,
+    });
+    expect(severities(malformedExpiry)).toContainEqual(["expires-invalid", "fail"]);
+  });
+
+  it("parses clear-signed policies without treating the PGP envelope as fields", () => {
+    const report = analyzeSecurityTxt({
+      body: [
+        "-----BEGIN PGP SIGNED MESSAGE-----",
+        "Hash: SHA256",
+        "",
+        "Contact: mailto:security@example.com",
+        "Expires: 2026-06-01T00:00:00Z",
+        "- Canonical: https://example.com/.well-known/security.txt",
+        "-----BEGIN PGP SIGNATURE-----",
+        "version: test",
+        "-----END PGP SIGNATURE-----",
+      ].join("\n"),
+      fetchedUrl: LOCATION,
+      now: NOW,
+    });
+
+    expect(report.fields).toMatchObject({
+      Contact: ["mailto:security@example.com"],
+      Expires: ["2026-06-01T00:00:00Z"],
+      Canonical: [LOCATION],
+    });
+    expect(report.fields.Hash).toBeUndefined();
+    expect(report.malformedLines).toEqual([]);
+  });
+
   it("warns on malformed lines and canonical mismatch", () => {
     const report = analyzeSecurityTxt({
       body: [

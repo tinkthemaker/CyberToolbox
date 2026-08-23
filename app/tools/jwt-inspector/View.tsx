@@ -65,6 +65,7 @@ export default function JwtInspectorPage() {
     | { kind: "error"; message: string }
   >({ kind: "idle" });
   const wordlistRef = useRef<string[] | null>(null);
+  const operationIdRef = useRef(0);
 
   const parsed = useMemo(() => parseJwt(input), [input]);
   const findings = useMemo(() => (parsed.ok ? analyzeJwt(parsed.jwt) : []), [parsed]);
@@ -72,6 +73,7 @@ export default function JwtInspectorPage() {
   const showHmacTools = parsed.ok && isHmacAlg(alg);
 
   function updateInput(value: string) {
+    operationIdRef.current += 1;
     setInput(value);
     setVerifyState({ kind: "idle" });
     setCrackState({ kind: "idle" });
@@ -88,20 +90,26 @@ export default function JwtInspectorPage() {
 
   async function onVerify() {
     if (!parsed.ok || verifyState.kind === "checking") return;
+    const operationId = operationIdRef.current;
     setVerifyState({ kind: "checking" });
     const r = await verifyWithSecret(parsed.jwt, secret);
+    if (operationId !== operationIdRef.current) return;
     setVerifyState({ kind: "result", ok: r.verified, reason: r.reason });
   }
 
   async function onCrack() {
     if (!parsed.ok || crackState.kind === "running") return;
+    const operationId = operationIdRef.current;
     setCrackState({ kind: "running", tried: 0, total: 0 });
     try {
       const list = await loadWordlist();
+      if (operationId !== operationIdRef.current) return;
       setCrackState({ kind: "running", tried: 0, total: list.length });
       const result = await crackHmac(parsed.jwt, list, (tried) =>
-        setCrackState({ kind: "running", tried, total: list.length }),
+        operationId === operationIdRef.current &&
+          setCrackState({ kind: "running", tried, total: list.length }),
       );
+      if (operationId !== operationIdRef.current) return;
       setCrackState({
         kind: "done",
         secret: result.secret,
@@ -109,6 +117,7 @@ export default function JwtInspectorPage() {
         durationMs: result.durationMs,
       });
     } catch (e) {
+      if (operationId !== operationIdRef.current) return;
       setCrackState({ kind: "error", message: e instanceof Error ? e.message : "crack failed" });
     }
   }
