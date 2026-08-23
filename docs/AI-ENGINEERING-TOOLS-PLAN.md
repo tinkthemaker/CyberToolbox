@@ -109,8 +109,8 @@ policy surface:
   `CCBot`, `PerplexityBot`, `Bytespider`, `Applebot-Extended`, and friends;
   flags "blocks nothing", "blocks everything", and self-contradicting groups.
 - `/llms.txt` and `/llms-full.txt` — presence, size, whether it points at
-  routes that 404. **Only same-origin URLs are dereferenced, capped at 20 per
-  scan**: the advertised list is attacker-controlled content, so following
+  routes that 404. **Only same-origin URLs are dereferenced within the
+  audit-wide request budget**: the advertised list is attacker-controlled content, so following
   off-origin entries would turn the scanner into a request amplifier for
   third-party hosts that never opted in. `guardUrl` blocks private and reserved
   addresses but deliberately permits public ones, so the origin check is a
@@ -133,11 +133,20 @@ surface auditing" — including the tagline, the About page, and the OG copy.
 **That is a product decision, not a technical one** — see *Decisions needed*
 below. Build it if the answer is yes; drop it cleanly if the answer is no.
 
+**Fetch budget and redirect rule:** an audit makes at most **20 outbound HTTP
+requests total**. That budget includes the initial policy candidates, every
+advertised URL sample, and every redirect hop—not merely each `safeFetch`
+call. A1 therefore needs an origin-pinned fetch mode that checks every 3xx
+`Location` against the submitted origin before making the next request; an
+off-origin redirect is reported but never fetched. `guardUrl` still runs for
+each permitted hop to protect address safety.
+
 **Files:** `lib/aipolicy/{fetch,robots,llmstxt,analyze,types}.ts`,
 `app/api/tools/ai-policy/route.ts`, `app/tools/ai-policy/{page,View}.tsx`,
 `tests/aipolicy/analyze.test.ts`. Add `maxDuration: 15` to `vercel.json`.
 
-**Effort:** M. Network: 4–6 guarded GETs.
+**Effort:** M. Network: 4–6 guarded GETs without advertised-link sampling;
+20 origin-pinned HTTP requests is the hard cap for a complete audit.
 
 ---
 
@@ -198,8 +207,11 @@ Also on the README list. Validates sitemap XML, URL count/size caps,
 `robots.txt` ↔ sitemap disagreement, and 404/redirect sampling of advertised
 URLs.
 
-Sampling of advertised URLs follows the same same-origin + 20-URL cap as A1,
-and for the same reason: sitemap contents are attacker-controlled.
+Sampling of advertised URLs follows the same origin-pinned 20-request budget as
+A1, and for the same reason: sitemap contents are attacker-controlled. Every
+redirect hop must match the submitted origin before it is requested; off-origin
+locations are reported but not followed, and `guardUrl` validates every allowed
+hop.
 
 **Dependency note:** B4 and A1 share a `robots.txt` parser, and **B4 ships
 first** (Phase 4 vs Phase 5), so B4 introduces it — `lib/robots/parse.ts`,
