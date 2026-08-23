@@ -1,6 +1,7 @@
 import { NextResponse } from "next/server";
 import { runCorsScan } from "@/lib/cors/scan";
 import { rateLimit, clientKeyFromHeaders } from "@/lib/security/rate-limit";
+import { readJsonRequest } from "@/lib/security/request";
 
 export const runtime = "nodejs";
 export const dynamic = "force-dynamic";
@@ -16,14 +17,12 @@ export async function POST(req: Request) {
     );
   }
 
-  let payload: unknown;
-  try {
-    payload = await req.json();
-  } catch {
-    return NextResponse.json({ error: "Invalid JSON body." }, { status: 400 });
+  const parsed = await readJsonRequest(req);
+  if (!parsed.ok) {
+    return NextResponse.json({ error: parsed.error }, { status: parsed.status });
   }
 
-  const url = (payload as { url?: unknown })?.url;
+  const url = (parsed.value as { url?: unknown })?.url;
   if (typeof url !== "string" || url.length === 0 || url.length > 2048) {
     return NextResponse.json({ error: "Provide a 'url' string (max 2048 chars)." }, { status: 400 });
   }

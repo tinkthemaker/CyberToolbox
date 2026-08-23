@@ -1,3 +1,4 @@
+import net from "node:net";
 import tls, { type DetailedPeerCertificate } from "node:tls";
 import { guardUrl } from "@/lib/security/ssrf";
 import type { Finding, FindingGroup } from "@/lib/shared/findings";
@@ -34,14 +35,14 @@ function walkChain(root: DetailedPeerCertificate): DetailedPeerCertificate[] {
 
 type StrictResult = { authorized: true } | { authorized: false; error: string };
 
-function strictConnect(host: string, port: number): Promise<StrictResult> {
+function strictConnect(connectIp: string, servername: string, port: number): Promise<StrictResult> {
   return new Promise((resolve) => {
     let settled = false;
     const socket = tls.connect(
       {
-        host,
+        host: connectIp,
         port,
-        servername: host,
+        servername: net.isIP(servername) === 0 ? servername : undefined,
         rejectUnauthorized: true,
         checkServerIdentity: () => undefined,
       },
@@ -66,15 +67,15 @@ function strictConnect(host: string, port: number): Promise<StrictResult> {
   });
 }
 
-function lenientConnect(host: string, port: number): Promise<RawConnectResult> {
+function lenientConnect(connectIp: string, servername: string, port: number): Promise<RawConnectResult> {
   return new Promise((resolve, reject) => {
     const start = Date.now();
     let settled = false;
     const socket = tls.connect(
       {
-        host,
+        host: connectIp,
         port,
-        servername: host,
+        servername: net.isIP(servername) === 0 ? servername : undefined,
         rejectUnauthorized: false,
         ALPNProtocols: ["h2", "http/1.1"],
       },
@@ -84,7 +85,7 @@ function lenientConnect(host: string, port: number): Promise<RawConnectResult> {
         const rawCert = socket.getPeerCertificate(true);
         const protocol = socket.getProtocol();
         const cipher = socket.getCipher();
-        const hostnameError = tls.checkServerIdentity(host, rawCert) as Error | undefined;
+        const hostnameError = tls.checkServerIdentity(servername, rawCert) as Error | undefined;
         const chain = walkChain(rawCert);
         socket.end();
         resolve({
@@ -111,10 +112,10 @@ function lenientConnect(host: string, port: number): Promise<RawConnectResult> {
   });
 }
 
-async function tlsInspect(host: string, port: number): Promise<RawConnectResult> {
+async function tlsInspect(connectIp: string, servername: string, port: number): Promise<RawConnectResult> {
   const [strict, lenient] = await Promise.all([
-    strictConnect(host, port),
-    lenientConnect(host, port),
+    strictConnect(connectIp, servername, port),
+    lenientConnect(connectIp, servername, port),
   ]);
   return {
     ...lenient,
@@ -466,10 +467,15 @@ export async function runTlsScan(
 
   const guard = await guardUrl(`https://${host}:${port}`);
   if (!guard.ok) return { ok: false, reason: guard.reason };
+  const tlsServername = guard.url.hostname.startsWith("[")
+    ? guard.url.hostname.slice(1, -1)
+    : guard.url.hostname;
 
   let connect: RawConnectResult;
   try {
-    connect = await tlsInspect(host, port);
+    // Pin both TLS handshakes to the address that passed the SSRF guard.
+    // SNI and hostname verification still use the user-facing hostname.
+    connect = await tlsInspect(guard.ip, tlsServername, port);
   } catch (e) {
     const msg = e instanceof Error ? e.message : "TLS connection failed";
     return { ok: false, reason: `Could not connect: ${msg}` };

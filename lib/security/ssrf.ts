@@ -19,44 +19,41 @@ const BLOCKED_V4_CIDRS = [
   "255.255.255.255/32",
 ];
 
-function ipv4ToInt(ip: string): number {
-  const parts = ip.split(".");
-  if (parts.length !== 4) return -1;
-  let n = 0;
-  for (const p of parts) {
-    const o = Number(p);
-    if (!Number.isInteger(o) || o < 0 || o > 255) return -1;
-    n = (n << 8) + o;
-  }
-  return n >>> 0;
+const BLOCKED_V6_CIDRS = [
+  "::/128", // unspecified
+  "::1/128", // loopback
+  "::ffff:0.0.0.0/96", // IPv4-mapped (including hex-encoded private IPv4)
+  "::ffff:0:0:0/96", // IPv4-translatable
+  "64:ff9b::/96", // well-known NAT64 translation prefix
+  "64:ff9b:1::/48", // local-use NAT64 translation prefix
+  "100::/64", // discard-only
+  "2001::/32", // Teredo embeds an IPv4 destination
+  "2001:db8::/32", // documentation
+  "2002::/16", // 6to4 embeds an IPv4 destination
+  "fc00::/7", // unique-local
+  "fe80::/10", // link-local
+  "fec0::/10", // deprecated site-local
+  "ff00::/8", // multicast
+];
+
+const blockedAddresses = new net.BlockList();
+for (const cidr of BLOCKED_V4_CIDRS) {
+  const [network, prefix] = cidr.split("/");
+  blockedAddresses.addSubnet(network, Number(prefix), "ipv4");
+}
+for (const cidr of BLOCKED_V6_CIDRS) {
+  const [network, prefix] = cidr.split("/");
+  blockedAddresses.addSubnet(network, Number(prefix), "ipv6");
 }
 
-function inV4Cidr(ip: string, cidr: string): boolean {
-  const [range, bitsStr] = cidr.split("/");
-  const bits = Number(bitsStr);
-  const ipInt = ipv4ToInt(ip);
-  const rangeInt = ipv4ToInt(range);
-  if (ipInt < 0 || rangeInt < 0) return false;
-  if (bits === 0) return true;
-  const mask = (~0 << (32 - bits)) >>> 0;
-  return (ipInt & mask) === (rangeInt & mask);
+function unbracketHostname(hostname: string): string {
+  return hostname.startsWith("[") && hostname.endsWith("]")
+    ? hostname.slice(1, -1)
+    : hostname;
 }
 
-function isBlockedV6(addr: string): boolean {
-  const lower = addr.toLowerCase();
-  if (lower === "::" || lower === "::1") return true;
-  if (/^fe[89ab][0-9a-f]:/.test(lower)) return true;
-  if (/^f[cd][0-9a-f]{2}:/.test(lower)) return true;
-  if (lower.startsWith("::ffff:")) {
-    const v4 = lower.slice(7);
-    if (net.isIP(v4) === 4) return isBlockedV4(v4);
-  }
-  if (/^ff[0-9a-f]{2}:/.test(lower)) return true;
-  return false;
-}
-
-function isBlockedV4(ip: string): boolean {
-  return BLOCKED_V4_CIDRS.some((c) => inV4Cidr(ip, c));
+function isBlockedAddress(address: string, family: 4 | 6): boolean {
+  return blockedAddresses.check(address, family === 4 ? "ipv4" : "ipv6");
 }
 
 export type GuardResult =
@@ -75,15 +72,16 @@ export async function guardUrl(input: string): Promise<GuardResult> {
     return { ok: false, reason: "Only http and https are allowed." };
   }
 
-  const hostname = url.hostname;
+  if (url.username || url.password) {
+    return { ok: false, reason: "URLs containing credentials are not allowed." };
+  }
+
+  const hostname = unbracketHostname(url.hostname);
   if (!hostname) return { ok: false, reason: "Missing hostname." };
 
   const literal = net.isIP(hostname);
-  if (literal === 4 && isBlockedV4(hostname)) {
+  if (literal !== 0 && isBlockedAddress(hostname, literal as 4 | 6)) {
     return { ok: false, reason: `Refusing to scan private/reserved address ${hostname}.` };
-  }
-  if (literal === 6 && isBlockedV6(hostname)) {
-    return { ok: false, reason: `Refusing to scan private/reserved IPv6 address ${hostname}.` };
   }
   if (literal !== 0) {
     return { ok: true, url, ip: hostname, family: literal as 4 | 6 };
@@ -103,14 +101,14 @@ export async function guardUrl(input: string): Promise<GuardResult> {
   if (addrs.length === 0) return { ok: false, reason: `No DNS records for ${hostname}.` };
 
   for (const a of addrs) {
-    if (a.family === 4 && isBlockedV4(a.address)) {
-      return { ok: false, reason: `${hostname} resolves to private/reserved ${a.address}.` };
-    }
-    if (a.family === 6 && isBlockedV6(a.address)) {
+    if ((a.family === 4 || a.family === 6) && isBlockedAddress(a.address, a.family)) {
       return { ok: false, reason: `${hostname} resolves to private/reserved ${a.address}.` };
     }
   }
 
   const first = addrs[0];
+  if (first.family !== 4 && first.family !== 6) {
+    return { ok: false, reason: `Unsupported address family for ${hostname}.` };
+  }
   return { ok: true, url, ip: first.address, family: first.family as 4 | 6 };
 }

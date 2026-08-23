@@ -1,6 +1,6 @@
 "use client";
 
-import { useEffect, useMemo, useRef, useState } from "react";
+import { useMemo, useRef, useState } from "react";
 import { parseJwt } from "@/lib/jwt/parse";
 import { analyzeJwt } from "@/lib/jwt/analyze";
 import { crackHmac, isHmacAlg, verifyWithSecret } from "@/lib/jwt/crack";
@@ -71,10 +71,11 @@ export default function JwtInspectorPage() {
   const alg = parsed.ok ? (parsed.jwt.header as { alg?: unknown }).alg : undefined;
   const showHmacTools = parsed.ok && isHmacAlg(alg);
 
-  useEffect(() => {
+  function updateInput(value: string) {
+    setInput(value);
     setVerifyState({ kind: "idle" });
     setCrackState({ kind: "idle" });
-  }, [input]);
+  }
 
   async function loadWordlist(): Promise<string[]> {
     if (wordlistRef.current) return wordlistRef.current;
@@ -131,7 +132,7 @@ export default function JwtInspectorPage() {
           <button
             key={s.label}
             type="button"
-            onClick={() => setInput(s.jwt)}
+            onClick={() => updateInput(s.jwt)}
             className="rounded-full border border-ink-600 bg-ink-800/60 hover:border-accent-500/50 hover:text-accent-400 px-3 py-1 transition"
             title={s.note}
           >
@@ -141,7 +142,7 @@ export default function JwtInspectorPage() {
         {input && (
           <button
             type="button"
-            onClick={() => setInput("")}
+            onClick={() => updateInput("")}
             className="rounded-full border border-ink-700 bg-ink-900/60 hover:border-rose-500/40 hover:text-rose-300 px-3 py-1 transition ml-auto"
           >
             Clear
@@ -151,7 +152,7 @@ export default function JwtInspectorPage() {
 
       <textarea
         value={input}
-        onChange={(e) => setInput(e.target.value)}
+        onChange={(e) => updateInput(e.target.value)}
         placeholder="Paste a JWT (eyJ…)"
         spellCheck={false}
         autoComplete="off"

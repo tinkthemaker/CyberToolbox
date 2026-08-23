@@ -4,7 +4,8 @@
   "functions": {
     "app/api/tools/misconfig-mapper/route.ts": { "maxDuration": 15 },
     "app/api/tools/cors-tester/route.ts": { "maxDuration": 20 },
-    "app/api/tools/cert-viewer/route.ts": { "maxDuration": 15 }
+    "app/api/tools/cert-viewer/route.ts": { "maxDuration": 15 },
+    "app/api/tools/securitytxt-auditor/route.ts": { "maxDuration": 15 }
   },
   "headers": [
     {

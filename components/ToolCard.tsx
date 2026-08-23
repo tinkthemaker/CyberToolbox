@@ -3,18 +3,14 @@ import type { Tool } from "@/lib/tools/registry";
 
 export function ToolCard({ tool }: { tool: Tool }) {
   const isLive = tool.status === "live";
-  const Wrapper: any = isLive ? Link : "div";
-  const wrapperProps = isLive ? { href: tool.href } : {};
+  const className = `group relative block rounded-2xl border p-5 transition ${
+    isLive
+      ? "border-ink-700 bg-ink-900/60 hover:border-accent-500/60 hover:bg-ink-800/80"
+      : "border-ink-700/60 bg-ink-900/30 opacity-60 cursor-not-allowed"
+  }`;
 
-  return (
-    <Wrapper
-      {...wrapperProps}
-      className={`group relative block rounded-2xl border p-5 transition ${
-        isLive
-          ? "border-ink-700 bg-ink-900/60 hover:border-accent-500/60 hover:bg-ink-800/80"
-          : "border-ink-700/60 bg-ink-900/30 opacity-60 cursor-not-allowed"
-      }`}
-    >
+  const content = (
+    <>
       <div className="flex items-start justify-between gap-3">
         <div>
           <h3 className="text-lg font-semibold tracking-tight text-slate-100 group-hover:text-accent-400 transition">
@@ -45,6 +41,12 @@ export function ToolCard({ tool }: { tool: Tool }) {
           ))}
         </div>
       )}
-    </Wrapper>
+    </>
+  );
+
+  return isLive ? (
+    <Link href={tool.href} className={className}>{content}</Link>
+  ) : (
+    <div className={className}>{content}</div>
   );
 }
